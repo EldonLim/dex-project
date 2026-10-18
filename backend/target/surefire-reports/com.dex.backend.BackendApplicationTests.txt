@@ -1,4 +1,0 @@
--------------------------------------------------------------------------------
-Test set: com.dex.backend.BackendApplicationTests
--------------------------------------------------------------------------------
-Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.125 s -- in com.dex.backend.BackendApplicationTests
