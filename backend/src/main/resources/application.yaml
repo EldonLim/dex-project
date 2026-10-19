@@ -1,0 +1,39 @@
+spring:
+  application:
+    name: backend
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  sql:
+    init:
+      mode: never
+
+dex:
+  blockchain:
+    mode: ${DEX_BLOCKCHAIN_MODE}
+    deployment-id: ${DEX_DEPLOYMENT_ID}
+    rpc-url: ${DEX_RPC_URL:}
+    expected-chain-id: ${DEX_EXPECTED_CHAIN_ID:}
+    dex-address: ${DEX_CONTRACT_ADDRESS:}
+    deployment-block: ${DEX_DEPLOYMENT_BLOCK:}
+
+  indexer:
+    poll-interval: ${DEX_INDEXER_POLL_INTERVAL:2s}
+    confirmation-depth: ${DEX_INDEXER_CONFIRMATION_DEPTH:0}
+    block-batch-size: ${DEX_INDEXER_BLOCK_BATCH_SIZE:500}
+
+  matcher:
+    enabled: ${DEX_MATCHER_ENABLED:false}
+
+  executor:
+    private-key: ${DEX_EXECUTOR_PRIVATE_KEY:}
+
+  api:
+    cors-origins: ${DEX_CORS_ORIGINS:http://localhost:5173}

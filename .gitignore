@@ -24,3 +24,5 @@ temp/
 .tmp/
 .temp/
 .cache/
+
+target/
