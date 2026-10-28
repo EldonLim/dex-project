@@ -27,6 +27,19 @@ The example environment explicitly selects `MOCK` blockchain mode. To use
 Ethereum mode also requires `DEX_EXECUTOR_PRIVATE_KEY` when
 `DEX_MATCHER_ENABLED=true`. Never commit `.env` or real private keys.
 
+## Blockchain integration status
+
+Mock mode is currently implemented. Its standard deterministic fixture contains
+one market and two compatible orders, and mock settlement supports pending,
+successful, and reverted transaction behavior.
+
+Ethereum/Web3j integration is not implemented yet. Passing the mock tests does
+not prove compatibility with the finalized Solidity contracts, and the
+application never silently falls back from Ethereum mode to mock mode.
+
+- [Provisional contract assumptions](docs/contract-assumptions.md)
+- [Member 2 integration checklist](docs/member-2-integration-checklist.md)
+
 ## Run tests
 
 ```bash
