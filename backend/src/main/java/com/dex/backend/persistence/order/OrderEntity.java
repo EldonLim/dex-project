@@ -118,6 +118,57 @@ public class OrderEntity {
         projectionUpdatedAt = Instant.now();
     }
 
+    public void cancel(BigInteger eventRemainingLots) {
+        Objects.requireNonNull(eventRemainingLots, "eventRemainingLots must not be null");
+
+        requireActive("cancel");
+
+        if (!remainingLots.equals(eventRemainingLots)) {
+            throw new IllegalStateException(
+                    "Cancellation remaining lots do not match the current projection"
+            );
+        }
+
+        status = OrderStatus.CANCELLED;
+    }
+
+    public void validateFill(BigInteger fillLots, BigInteger eventRemainingLots) {
+        Objects.requireNonNull(fillLots, "fillLots must not be null");
+        Objects.requireNonNull(eventRemainingLots, "eventRemainingLots must not be null");
+
+        requireActive("fill");
+
+        if (fillLots.signum() <= 0) {
+            throw new IllegalArgumentException("fillLots must be positive");
+        }
+
+        BigInteger expectedRemainingLots = remainingLots.subtract(fillLots);
+
+        if (expectedRemainingLots.signum() < 0
+                || !expectedRemainingLots.equals(eventRemainingLots)) {
+            throw new IllegalStateException(
+                    "Trade remaining lots are inconsistent with the current projection"
+            );
+        }
+    }
+
+    public void applyFill(BigInteger fillLots, BigInteger eventRemainingLots) {
+        validateFill(fillLots, eventRemainingLots);
+
+        remainingLots = eventRemainingLots;
+        status = remainingLots.signum() == 0
+                ? OrderStatus.FILLED
+                : OrderStatus.PARTIALLY_FILLED;
+    }
+
+    private void requireActive(String operation) {
+        if (status != OrderStatus.OPEN && status != OrderStatus.PARTIALLY_FILLED) {
+            throw new IllegalStateException(
+                    "Cannot " + operation + " an order with status " + status
+            );
+        }
+    }
+
     public OrderEntityId getId() {
         return id;
     }
