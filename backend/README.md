@@ -57,6 +57,55 @@ it keeps the previous projection isolated and available for diagnosis.
 See [Indexer recovery](docs/indexer-recovery.md) for inspection, backup, resume,
 and deployment-scoped reindex procedures.
 
+## Read API
+
+The versioned read API is available under `/api/v1`. It reads the confirmed
+PostgreSQL projection, so responses can lag the latest blockchain state by the
+configured confirmation depth and polling delay.
+
+### List markets
+
+```http
+GET /api/v1/markets
+```
+
+Markets are scoped to the configured deployment and sorted by numeric market ID.
+The set of registered markets is expected to remain small, so this endpoint is
+not paginated.
+
+```json
+{
+  "items": [
+    {
+      "marketId": "1",
+      "baseToken": {
+        "address": "0x1111111111111111111111111111111111111111",
+        "symbol": "TKA",
+        "decimals": 18
+      },
+      "quoteToken": {
+        "address": "0x2222222222222222222222222222222222222222",
+        "symbol": "TKB",
+        "decimals": 18
+      },
+      "baseLotSizeAtoms": "1000000000000000000",
+      "quantityUnit": "LOTS",
+      "priceUnit": "QUOTE_ATOMS_PER_LOT",
+      "active": true
+    }
+  ]
+}
+```
+
+Large integer values are decimal strings to avoid JavaScript precision loss.
+`baseLotSizeAtoms` defines the number of base-token atoms in one lot, and prices
+in later endpoints use quote-token atoms per lot.
+
+Browser access to `/api/v1/**` is restricted to the origins configured by
+`DEX_CORS_ORIGINS`. Only read requests are supported. API errors use the
+standard `application/problem+json` media type and never include stack traces or
+sensitive configuration.
+
 ## Run tests
 
 ```bash

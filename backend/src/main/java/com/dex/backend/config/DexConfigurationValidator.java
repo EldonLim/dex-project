@@ -44,11 +44,21 @@ public class DexConfigurationValidator implements InitializingBean {
 
     private void validateCors() {
         for (URI origin : properties.api().corsOrigins()) {
+            String path = origin.getRawPath();
+            int port = origin.getPort();
+
             require(
                     origin.isAbsolute()
                             && ("http".equals(origin.getScheme())
-                            || "https".equals(origin.getScheme())),
-                    "DEX_CORS_ORIGINS must contain only absolute HTTP(S) origins"
+                            || "https".equals(origin.getScheme()))
+                            && origin.getHost() != null
+                            && origin.getUserInfo() == null
+                            && (path == null || path.isEmpty())
+                            && origin.getRawQuery() == null
+                            && origin.getRawFragment() == null
+                            && (port == -1 || (port >= 1 && port <= 65_535)),
+                    "DEX_CORS_ORIGINS must contain only HTTP(S) origins "
+                            + "with a host and optional port"
             );
         }
     }

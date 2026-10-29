@@ -1,6 +1,8 @@
 package com.dex.backend.config;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.math.BigInteger;
 import java.net.URI;
@@ -114,6 +116,54 @@ class DexConfigurationValidatorTests {
 
         assertThrows(
                 IllegalStateException.class,
+                () -> new DexConfigurationValidator(properties).afterPropertiesSet()
+        );
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "http://localhost:5173/",
+            "http://localhost:5173/frontend",
+            "http://localhost:5173?source=test",
+            "http://localhost:5173#fragment",
+            "http://user@localhost:5173",
+            "ftp://localhost:5173",
+            "http://*.example.com"
+    })
+    void corsOriginWithNonOriginComponentsThrows(String value) {
+        DexProperties properties = properties(
+                BlockchainMode.MOCK,
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
+                Duration.ofSeconds(2),
+                List.of(URI.create(value))
+        );
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new DexConfigurationValidator(properties).afterPropertiesSet()
+        );
+    }
+
+    @Test
+    void corsOriginWithHttpsAndPortSucceeds() {
+        DexProperties properties = properties(
+                BlockchainMode.MOCK,
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
+                Duration.ofSeconds(2),
+                List.of(URI.create("https://frontend.example:8443"))
+        );
+
+        assertDoesNotThrow(
                 () -> new DexConfigurationValidator(properties).afterPropertiesSet()
         );
     }
