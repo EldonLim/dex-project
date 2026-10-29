@@ -124,6 +124,18 @@ public class ApiProblemDetailsHandler {
             NoResourceFoundException exception,
             HttpServletRequest request
     ) {
+        return notFound(request);
+    }
+
+    @ExceptionHandler(ApiResourceNotFoundException.class)
+    ResponseEntity<ProblemDetail> handleApiResourceNotFound(
+            ApiResourceNotFoundException exception,
+            HttpServletRequest request
+    ) {
+        return notFound(request);
+    }
+
+    private ResponseEntity<ProblemDetail> notFound(HttpServletRequest request) {
         ProblemDetail problem = problem(
                 HttpStatus.NOT_FOUND,
                 NOT_FOUND_TYPE,

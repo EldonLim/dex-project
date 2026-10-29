@@ -99,7 +99,59 @@ not paginated.
 
 Large integer values are decimal strings to avoid JavaScript precision loss.
 `baseLotSizeAtoms` defines the number of base-token atoms in one lot, and prices
-in later endpoints use quote-token atoms per lot.
+use quote-token atoms per lot.
+
+### Get an order book
+
+```http
+GET /api/v1/markets/{marketId}/orderbook?limit=50
+```
+
+The response contains individual confirmed orders rather than aggregated price
+levels. `limit` defaults to 50, has a maximum of 200, and applies independently
+to bids and asks. Each side's `hasMore` value indicates whether additional
+eligible orders exist beyond that limit.
+
+```json
+{
+  "marketId": "1",
+  "limit": 50,
+  "bids": {
+    "items": [
+      {
+        "orderId": "10",
+        "side": "BUY",
+        "limitPriceQuoteAtomsPerLot": "2500000",
+        "remainingLots": "40",
+        "creationPosition": {
+          "blockNumber": "12",
+          "transactionIndex": "0",
+          "logIndex": "1"
+        }
+      }
+    ],
+    "hasMore": false
+  },
+  "asks": {
+    "items": [],
+    "hasMore": false
+  }
+}
+```
+
+Only `OPEN` and `PARTIALLY_FILLED` orders with a positive remainder appear.
+Bids sort by highest price first and asks by lowest price first. Orders at the
+same price sort by block number, transaction index, and log index ascending,
+with order ID as the final deterministic tie-breaker. An inactive but existing
+market can still expose confirmed remaining orders.
+
+`remainingLots` is a quantity in lots, while
+`limitPriceQuoteAtomsPerLot` is a price in quote-token atoms per lot. All
+blockchain-sized integers are represented as decimal strings. This bounded
+snapshot has no cursor pagination and can lag current blockchain state by the
+confirmation depth and polling delay. Orders reserved by an unresolved
+settlement attempt remain visible until a confirmed blockchain event changes
+their projected state.
 
 Browser access to `/api/v1/**` is restricted to the origins configured by
 `DEX_CORS_ORIGINS`. Only read requests are supported. API errors use the
