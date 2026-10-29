@@ -153,6 +153,68 @@ confirmation depth and polling delay. Orders reserved by an unresolved
 settlement attempt remain visible until a confirmed blockchain event changes
 their projected state.
 
+### List wallet orders
+
+```http
+GET /api/v1/orders?owner=0x1111111111111111111111111111111111111111&marketId=1&status=PARTIALLY_FILLED&limit=50
+```
+
+`owner` is required. The optional `marketId` and `status` filters narrow the
+result; supported statuses are `OPEN`, `PARTIALLY_FILLED`, `FILLED`, and
+`CANCELLED`. Wallet filtering is a public blockchain-data query and does not
+authenticate or prove control of the supplied address.
+
+```json
+{
+  "items": [
+    {
+      "orderId": "10",
+      "marketId": "1",
+      "owner": "0x1111111111111111111111111111111111111111",
+      "side": "BUY",
+      "limitPriceQuoteAtomsPerLot": "2500000",
+      "originalLots": "100",
+      "filledLots": "60",
+      "remainingLots": "40",
+      "status": "PARTIALLY_FILLED",
+      "creationPosition": {
+        "blockNumber": "12",
+        "transactionIndex": "0",
+        "logIndex": "1"
+      },
+      "creationTransactionHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "blockTimestamp": "2026-01-01T12:00:00Z"
+    }
+  ],
+  "nextCursor": "djE6MTI6MDoxOjEw"
+}
+```
+
+Orders are sorted newest first by block number, transaction index, log index,
+and finally order ID. `filledLots` equals `originalLots` minus `remainingLots`.
+The default page limit is 50 and the maximum is 200.
+
+When `nextCursor` is not `null`, pass it unchanged as the next request's
+`cursor` parameter. Cursors are opaque and versioned; clients must not decode
+or construct them. Keyset pagination prevents offset-related duplicates, but
+separate requests are not a fixed database snapshot: later confirmed events
+can change an order's status between pages.
+
+### Get one order
+
+```http
+GET /api/v1/orders/{orderId}
+```
+
+This returns one order using the same item shape shown above. Only the
+configured deployment is searched, and an unknown order returns a sanitized
+`404` Problem Details response.
+
+These order endpoints expose confirmed projection state and can lag the chain
+by the configured confirmation depth and polling delay. They do not submit,
+cancel, or authenticate orders; user transactions remain the frontend and
+MetaMask's responsibility.
+
 Browser access to `/api/v1/**` is restricted to the origins configured by
 `DEX_CORS_ORIGINS`. Only read requests are supported. API errors use the
 standard `application/problem+json` media type and never include stack traces or

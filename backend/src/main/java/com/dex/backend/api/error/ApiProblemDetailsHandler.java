@@ -119,6 +119,17 @@ public class ApiProblemDetailsHandler {
         );
     }
 
+    @ExceptionHandler(InvalidCursorException.class)
+    ResponseEntity<ProblemDetail> handleInvalidCursor(
+            InvalidCursorException exception,
+            HttpServletRequest request
+    ) {
+        return invalidRequest(
+                request,
+                List.of(new ApiFieldError("cursor", "has an invalid value"))
+        );
+    }
+
     @ExceptionHandler(NoResourceFoundException.class)
     ResponseEntity<ProblemDetail> handleNotFound(
             NoResourceFoundException exception,
