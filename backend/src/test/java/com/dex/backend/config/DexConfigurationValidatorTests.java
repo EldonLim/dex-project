@@ -155,7 +155,7 @@ class DexConfigurationValidatorTests {
                         dexAddress,
                         deploymentBlock
                 ),
-                new DexProperties.Indexer(pollInterval, 0, 500),
+                new DexProperties.Indexer(true, pollInterval, 0, 500),
                 new DexProperties.Matcher(matcherEnabled),
                 new DexProperties.Executor(privateKey),
                 new DexProperties.Api(corsOrigins)

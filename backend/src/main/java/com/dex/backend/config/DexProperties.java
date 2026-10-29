@@ -37,6 +37,9 @@ public record DexProperties(
     }
 
     public record Indexer(
+            @DefaultValue("true")
+            boolean enabled,
+
             @DefaultValue("2s")
             @NotNull Duration pollInterval,
 

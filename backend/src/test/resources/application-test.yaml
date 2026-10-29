@@ -2,3 +2,5 @@ dex:
   blockchain:
     mode: MOCK
     deployment-id: integration-test
+  indexer:
+    enabled: false

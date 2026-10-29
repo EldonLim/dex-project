@@ -149,10 +149,35 @@ public class IndexerCheckpointEntity {
         lastErrorMessage = null;
     }
 
+    public void recordFailure(Instant failedAt, String message) {
+        lastErrorAt = Objects.requireNonNull(failedAt, "failedAt must not be null");
+        lastErrorMessage = requireMessage(message, "message");
+    }
+
+    public void pause(Instant pausedAt, String reason) {
+        String normalizedReason = requireMessage(reason, "reason");
+
+        recordFailure(pausedAt, normalizedReason);
+        paused = true;
+        pauseReason = normalizedReason;
+    }
+
     private void requireRunning() {
         if (paused) {
             throw new IllegalStateException("Cannot advance a paused indexer checkpoint");
         }
+    }
+
+    private static String requireMessage(String value, String fieldName) {
+        Objects.requireNonNull(value, fieldName + " must not be null");
+
+        String normalized = value.strip();
+
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException(fieldName + " must not be blank");
+        }
+
+        return normalized;
     }
 
     public String getDeploymentId() {

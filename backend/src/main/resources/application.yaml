@@ -25,6 +25,7 @@ dex:
     deployment-block: ${DEX_DEPLOYMENT_BLOCK:}
 
   indexer:
+    enabled: ${DEX_INDEXER_ENABLED:true}
     poll-interval: ${DEX_INDEXER_POLL_INTERVAL:2s}
     confirmation-depth: ${DEX_INDEXER_CONFIRMATION_DEPTH:0}
     block-batch-size: ${DEX_INDEXER_BLOCK_BATCH_SIZE:500}
