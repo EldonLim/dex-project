@@ -1,5 +1,6 @@
 package com.dex.backend.persistence.indexer;
 
+import com.dex.backend.blockchain.model.BlockReference;
 import com.dex.backend.blockchain.model.Hash256;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -96,6 +97,62 @@ public class IndexerCheckpointEntity {
     @PreUpdate
     void setUpdatedAt() {
         updatedAt = Instant.now();
+    }
+
+    public void advance(
+            BlockReference processedBlock,
+            BlockReference latestObservedBlock,
+            Instant successfulSyncAt
+    ) {
+        Objects.requireNonNull(processedBlock, "processedBlock must not be null");
+        Objects.requireNonNull(latestObservedBlock, "latestObservedBlock must not be null");
+        Objects.requireNonNull(successfulSyncAt, "successfulSyncAt must not be null");
+
+        requireRunning();
+
+        if (processedBlock.number().compareTo(lastProcessedBlockNumber) <= 0) {
+            throw new IllegalArgumentException(
+                    "processedBlock must be later than the current checkpoint"
+            );
+        }
+
+        if (latestObservedBlock.number().compareTo(processedBlock.number()) < 0) {
+            throw new IllegalArgumentException(
+                    "latestObservedBlock must not precede processedBlock"
+            );
+        }
+
+        lastProcessedBlockNumber = processedBlock.number();
+        lastProcessedBlockHash = processedBlock.hash();
+        recordSuccessfulObservation(latestObservedBlock, successfulSyncAt);
+    }
+
+    public void recordSuccessfulObservation(
+            BlockReference latestObservedBlock,
+            Instant successfulSyncAt
+    ) {
+        Objects.requireNonNull(latestObservedBlock, "latestObservedBlock must not be null");
+        Objects.requireNonNull(successfulSyncAt, "successfulSyncAt must not be null");
+
+        requireRunning();
+
+        if (latestObservedBlock.number().compareTo(lastProcessedBlockNumber) < 0) {
+            throw new IllegalArgumentException(
+                    "latestObservedBlock must not precede the current checkpoint"
+            );
+        }
+
+        latestObservedBlockNumber = latestObservedBlock.number();
+        latestObservedBlockHash = latestObservedBlock.hash();
+        lastSuccessfulSyncAt = successfulSyncAt;
+        lastErrorAt = null;
+        lastErrorMessage = null;
+    }
+
+    private void requireRunning() {
+        if (paused) {
+            throw new IllegalStateException("Cannot advance a paused indexer checkpoint");
+        }
     }
 
     public String getDeploymentId() {
