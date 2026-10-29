@@ -40,6 +40,23 @@ application never silently falls back from Ethereum mode to mock mode.
 - [Provisional contract assumptions](docs/contract-assumptions.md)
 - [Member 2 integration checklist](docs/member-2-integration-checklist.md)
 
+## Indexer operation and recovery
+
+The indexer polls with a fixed delay and processes at most one configured,
+bounded block range per invocation. It indexes only blocks that satisfy the
+configured confirmation depth. Retryable operational failures preserve the
+checkpoint so the same range can be attempted again.
+
+Chain-identity mismatches, checkpoint-hash mismatches, projection
+inconsistencies, and non-retryable gateway failures pause indexing. A paused
+worker must be recovered explicitly and the application must then be restarted;
+it never silently unpauses or deletes projection data. After a local-chain reset
+or contract redeployment, using a new stable deployment ID is preferred because
+it keeps the previous projection isolated and available for diagnosis.
+
+See [Indexer recovery](docs/indexer-recovery.md) for inspection, backup, resume,
+and deployment-scoped reindex procedures.
+
 ## Run tests
 
 ```bash
