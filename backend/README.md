@@ -22,10 +22,10 @@ cd backend
 ./mvnw spring-boot:run
 ```
 
-The example environment explicitly selects `MOCK` blockchain mode. To use
-`ETHEREUM` mode, fill in the Ethereum-only variables in `.env`. Matching in
-Ethereum mode also requires `DEX_EXECUTOR_PRIVATE_KEY` when
-`DEX_MATCHER_ENABLED=true`. Never commit `.env` or real private keys.
+The example environment explicitly selects `MOCK` blockchain mode. Ethereum
+configuration values are defined, but do not select `ETHEREUM` mode yet: the
+final DEX ABI adapter is still pending. Never commit `.env` or real private
+keys.
 
 Match discovery excludes both orders referenced by unresolved execution
 attempts. The operational matcher can preflight and durably reserve one match,
@@ -40,9 +40,18 @@ Mock mode is currently implemented. Its standard deterministic fixture contains
 one market and two compatible orders, and mock settlement supports pending,
 successful, and reverted transaction behavior.
 
-Ethereum/Web3j integration is not implemented yet. Passing the mock tests does
-not prove compatibility with the finalized Solidity contracts, and the
-application never silently falls back from Ethereum mode to mock mode.
+The ABI-independent Web3j foundation is implemented. It can validate the chain
+and deployment block, read blocks, query standard ERC-20 balances and
+allowances, read a pending executor nonce, broadcast an already signed payload,
+and observe transaction status. RPC values are mapped through the same strict
+address, hash, and `BigInteger` domain types used by mock mode.
+
+This foundation is intentionally not registered as a `BlockchainGateway`.
+Ethereum mode cannot yet index DEX events, read DEX market or order state, or
+encode and sign `executeMatch`; those operations require Member 2's finalized
+ABI and deployment artifacts. It never returns an empty event list as a
+placeholder and never silently falls back to mock mode. Passing the RPC or mock
+tests therefore does not prove compatibility with the finalized contracts.
 
 - [Provisional contract assumptions](docs/contract-assumptions.md)
 - [Member 2 integration checklist](docs/member-2-integration-checklist.md)
