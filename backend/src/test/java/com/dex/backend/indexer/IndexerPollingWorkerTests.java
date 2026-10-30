@@ -60,11 +60,14 @@ class IndexerPollingWorkerTests {
         try {
             Future<Boolean> firstInvocation = executor.submit(worker::pollOnce);
             assertTrue(enteredCoordinator.await(5, TimeUnit.SECONDS));
+            assertTrue(worker.isRunning());
+            assertFalse(worker.isHalted());
 
             assertFalse(worker.pollOnce());
 
             releaseCoordinator.countDown();
             assertTrue(firstInvocation.get(5, TimeUnit.SECONDS));
+            assertFalse(worker.isRunning());
             verify(coordinator, times(1)).indexNextBatch();
         } finally {
             releaseCoordinator.countDown();
@@ -106,6 +109,8 @@ class IndexerPollingWorkerTests {
 
         assertTrue(worker.pollOnce());
         assertFalse(worker.pollOnce());
+        assertTrue(worker.isHalted());
+        assertFalse(worker.isRunning());
 
         verify(coordinator, times(1)).indexNextBatch();
         verify(operationalStateService).pause(

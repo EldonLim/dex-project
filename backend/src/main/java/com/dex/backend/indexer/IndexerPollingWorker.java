@@ -85,6 +85,14 @@ public class IndexerPollingWorker {
         }
     }
 
+    public boolean isRunning() {
+        return running.get();
+    }
+
+    public boolean isHalted() {
+        return halted.get();
+    }
+
     private void recordTransientFailure(RuntimeException failure) {
         String message = failureMessage(failure);
         boolean persisted = persistFailure(() ->

@@ -264,6 +264,60 @@ cursors are opaque and must not be decoded or constructed by clients. As with
 other read endpoints, these are confirmed projections and can lag the chain;
 pending execution attempts are never returned as trades.
 
+### Get backend operational status
+
+```http
+GET /api/v1/status
+```
+
+The status endpoint reports safe deployment identity, indexer progress, and
+matcher availability without making a blockchain RPC request. It returns
+`200 OK` whenever the status document can be generated, including while the
+backend is starting, degraded, retrying, or paused. Use the Actuator health
+endpoint for infrastructure health probes rather than treating this operational
+status as a liveness response.
+
+```json
+{
+  "status": "HEALTHY",
+  "blockchainMode": "MOCK",
+  "deployment": {
+    "deploymentId": "local-mock-v1",
+    "registered": true,
+    "chainId": "31337",
+    "dexAddress": "0xdddddddddddddddddddddddddddddddddddddddd",
+    "deploymentBlockNumber": "100",
+    "deploymentBlockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "indexer": {
+    "enabled": true,
+    "state": "UP_TO_DATE",
+    "latestObservedBlockNumber": "103",
+    "lastIndexedBlockNumber": "103",
+    "indexingLagBlocks": "0",
+    "confirmationDepth": 0,
+    "lastSuccessfulSyncAt": "2026-01-01T12:00:00Z",
+    "lastErrorAt": null,
+    "paused": false
+  },
+  "matcher": {
+    "enabled": false,
+    "state": "DISABLED"
+  }
+}
+```
+
+Overall states are `HEALTHY`, `STARTING`, and `DEGRADED`. Indexer states are
+`DISABLED`, `STARTING`, `RUNNING`, `SYNCING`, `UP_TO_DATE`, `RETRYING`, and
+`PAUSED`. Before Step 5 is implemented, enabling matching is reported honestly
+as `NOT_IMPLEMENTED` and makes the overall status degraded.
+
+`indexingLagBlocks` counts only blocks currently eligible after confirmation
+depth: `max(latestObserved - confirmationDepth - lastIndexed, 0)`. Chain-sized
+numbers are decimal strings, and unavailable deployment or checkpoint fields
+are `null`. Raw error messages, pause reasons, RPC URLs, private keys, exception
+details, and database details are never included.
+
 Browser access to `/api/v1/**` is restricted to the origins configured by
 `DEX_CORS_ORIGINS`. Only read requests are supported. API errors use the
 standard `application/problem+json` media type and never include stack traces or
