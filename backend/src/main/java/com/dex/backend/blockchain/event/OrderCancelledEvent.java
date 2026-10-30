@@ -5,17 +5,13 @@ import java.util.Objects;
 
 public record OrderCancelledEvent(
         EventMetadata metadata,
-        BigInteger orderId,
-        BigInteger marketId,
-        BigInteger remainingLots
+        BigInteger orderId
 ) implements DexEvent {
 
     public OrderCancelledEvent {
         Objects.requireNonNull(metadata, "metadata must not be null");
 
         requireNonNegative(orderId, "orderId");
-        requireNonNegative(marketId, "marketId");
-        requireNonNegative(remainingLots, "remainingLots");
     }
 
     @Override

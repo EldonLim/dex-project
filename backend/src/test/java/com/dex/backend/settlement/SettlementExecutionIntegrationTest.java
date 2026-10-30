@@ -449,8 +449,14 @@ class SettlementExecutionIntegrationTest {
                 MockBlockchainFixtures.ALICE_ORDER_ID,
                 BigInteger.valueOf(39),
                 MockBlockchainFixtures.ALICE_LIMIT_PRICE,
-                BigInteger.ONE,
-                BigInteger.valueOf(61)
+                MockBlockchainFixtures.BOB_ADDRESS,
+                MockBlockchainFixtures.ALICE_ADDRESS,
+                BigInteger.valueOf(39).multiply(
+                        MockBlockchainFixtures.BASE_LOT_SIZE_ATOMS
+                ),
+                BigInteger.valueOf(39).multiply(
+                        MockBlockchainFixtures.ALICE_LIMIT_PRICE
+                )
         );
         BlockRange range = new BlockRange(block.number(), block.number());
 

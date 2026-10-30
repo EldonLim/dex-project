@@ -24,8 +24,8 @@ cd backend
 
 The example environment explicitly selects `MOCK` blockchain mode. Ethereum
 configuration values are defined, but do not select `ETHEREUM` mode yet: the
-final DEX ABI adapter is still pending. Never commit `.env` or real private
-keys.
+full gateway still needs settlement encoding and signing. Never commit `.env`
+or real private keys.
 
 Match discovery excludes both orders referenced by unresolved execution
 attempts. The operational matcher can preflight and durably reserve one match,
@@ -40,22 +40,27 @@ Mock mode is currently implemented. Its standard deterministic fixture contains
 one market and two compatible orders, and mock settlement supports pending,
 successful, and reverted transaction behavior.
 
-The ABI-independent Web3j foundation is implemented. It can validate the chain
-and deployment block, read blocks, query standard ERC-20 balances and
-allowances, read a pending executor nonce, broadcast an already signed payload,
-and observe transaction status. Deployment identity now records both the
-OrderBook address used for settlement and allowances and the separate
-MarketRegistry address used for market events. RPC values are mapped through
-the same strict address, hash, and `BigInteger` domain types used by mock mode.
+The Web3j foundation validates chain identity, reads blocks, queries standard
+ERC-20 state, reads executor nonces, broadcasts exact signed payloads, and
+observes transactions. The ABI-specific client additionally decodes confirmed
+`MarketRegistry` and `OrderBook` logs and reads `getMarket` and `getOrder` using
+the checked-in contract artifacts. ABI compatibility tests fail if the relevant
+artifact signatures or tuple layouts change.
 
-This foundation is intentionally not registered as a `BlockchainGateway`.
-Ethereum mode cannot yet index DEX events, read DEX market or order state, or
-encode and sign `executeTrade`; those operations still require the ABI-specific
-gateway implemented in Checkpoint 7B. It never returns an empty event list as a
-placeholder and never silently falls back to mock mode. Passing the RPC or mock
-tests therefore does not prove compatibility with the finalized contracts.
+Deployment identity records the OrderBook address used for orders, trades,
+settlement, and allowances plus the separate MarketRegistry address used for
+markets. `OrderCancelled` supplies only an order ID, and `TradeExecuted` does
+not supply post-trade remainders; the indexer therefore derives those values in
+strict log order from the confirmed projection. Token symbols and decimals are
+read from the ERC-20 contracts at the market event's block.
 
-- [Provisional contract assumptions](docs/contract-assumptions.md)
+The Ethereum client is intentionally not yet registered as a
+`BlockchainGateway`. Ethereum mode still needs `executeTrade` transaction
+encoding and signing before one complete adapter can satisfy the entire
+gateway contract. It never returns placeholder data and never silently falls
+back to mock mode.
+
+- [Solidity integration reference](docs/contract-assumptions.md)
 - [Member 2 integration checklist](docs/member-2-integration-checklist.md)
 
 ## Indexer operation and recovery

@@ -110,6 +110,19 @@
 	</dependencies>
 
 	<build>
+		<testResources>
+			<testResource>
+				<directory>src/test/resources</directory>
+			</testResource>
+			<testResource>
+				<directory>${project.basedir}/../smart-contracts/abi</directory>
+				<targetPath>contract-abi</targetPath>
+				<includes>
+					<include>MarketRegistry.json</include>
+					<include>OrderBook.json</include>
+				</includes>
+			</testResource>
+		</testResources>
 		<plugins>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>

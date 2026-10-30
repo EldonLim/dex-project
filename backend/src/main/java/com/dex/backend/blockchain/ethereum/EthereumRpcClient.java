@@ -2,6 +2,7 @@ package com.dex.backend.blockchain.ethereum;
 
 import com.dex.backend.blockchain.BlockchainGatewayException;
 import com.dex.backend.blockchain.execution.TransactionObservation;
+import com.dex.backend.blockchain.model.BlockRange;
 import com.dex.backend.blockchain.model.BlockReference;
 import com.dex.backend.blockchain.model.ChainIdentity;
 import com.dex.backend.blockchain.model.EthereumAddress;
@@ -24,13 +25,16 @@ import org.web3j.protocol.core.DefaultBlockParameterName;
 import org.web3j.protocol.core.Request;
 import org.web3j.protocol.core.Response;
 import org.web3j.protocol.core.methods.request.Transaction;
+import org.web3j.protocol.core.methods.request.EthFilter;
 import org.web3j.protocol.core.methods.response.EthBlock;
 import org.web3j.protocol.core.methods.response.EthCall;
 import org.web3j.protocol.core.methods.response.EthChainId;
 import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
+import org.web3j.protocol.core.methods.response.EthLog;
 import org.web3j.protocol.core.methods.response.EthSendTransaction;
 import org.web3j.protocol.core.methods.response.EthTransaction;
+import org.web3j.protocol.core.methods.response.Log;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
 
 import java.io.IOException;
@@ -39,6 +43,7 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.ArrayList;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -248,6 +253,93 @@ public final class EthereumRpcClient {
         );
     }
 
+    List<Log> getLogs(
+            BlockRange range,
+            List<EthereumAddress> contractAddresses
+    ) {
+        Objects.requireNonNull(range, "range must not be null");
+        Objects.requireNonNull(
+                contractAddresses,
+                "contractAddresses must not be null"
+        );
+        if (contractAddresses.isEmpty()
+                || contractAddresses.stream().anyMatch(Objects::isNull)) {
+            throw new IllegalArgumentException(
+                    "contractAddresses must contain at least one address"
+            );
+        }
+
+        EthFilter filter = new EthFilter(
+                DefaultBlockParameter.valueOf(range.fromInclusive()),
+                DefaultBlockParameter.valueOf(range.toInclusive()),
+                contractAddresses.stream()
+                        .map(EthereumAddress::value)
+                        .toList()
+        );
+        EthLog response = send("DEX event logs", web3j.ethGetLogs(filter));
+
+        if (response.getLogs() == null) {
+            throw nonRetryable("Ethereum log response is missing");
+        }
+
+        List<Log> logs = new ArrayList<>(response.getLogs().size());
+        for (EthLog.LogResult<?> result : response.getLogs()) {
+            if (result == null || !(result.get() instanceof Log log)) {
+                throw nonRetryable("Ethereum log response is malformed");
+            }
+            logs.add(log);
+        }
+        return List.copyOf(logs);
+    }
+
+    Optional<List<Type>> callContract(
+            EthereumAddress contract,
+            Function function,
+            DefaultBlockParameter block,
+            String operation,
+            boolean revertMeansMissing
+    ) {
+        Objects.requireNonNull(contract, "contract must not be null");
+        Objects.requireNonNull(function, "function must not be null");
+        Objects.requireNonNull(block, "block must not be null");
+        if (!StringUtils.hasText(operation)) {
+            throw new IllegalArgumentException("operation must not be blank");
+        }
+
+        Transaction call = Transaction.createEthCallTransaction(
+                null,
+                contract.value(),
+                FunctionEncoder.encode(function)
+        );
+        EthCall response = sendContractCall(
+                operation,
+                web3j.ethCall(call, block),
+                revertMeansMissing
+        );
+
+        if (response.isReverted()) {
+            if (revertMeansMissing) {
+                return Optional.empty();
+            }
+            throw nonRetryable("Ethereum contract call reverted");
+        }
+
+        if (!StringUtils.hasText(response.getValue())) {
+            throw nonRetryable("Ethereum contract call returned no value");
+        }
+
+        try {
+            return Optional.of(List.copyOf(FunctionReturnDecoder.decode(
+                    response.getValue(),
+                    function.getOutputParameters()
+            )));
+        } catch (RuntimeException exception) {
+            throw nonRetryable(
+                    "Ethereum contract call returned malformed data"
+            );
+        }
+    }
+
     public Optional<EthereumAddress> getExecutorAddress() {
         return Optional.ofNullable(executorAddress);
     }
@@ -423,45 +515,19 @@ public final class EthereumRpcClient {
             Function function,
             String operation
     ) {
-        String encodedFunction = FunctionEncoder.encode(function);
-        Transaction call = Transaction.createEthCallTransaction(
-                null,
-                contract.value(),
-                encodedFunction
-        );
-        EthCall response = send(
+        List<Type> decoded = callContract(
+                contract,
+                function,
+                DefaultBlockParameterName.LATEST,
                 operation,
-                web3j.ethCall(call, DefaultBlockParameterName.LATEST)
-        );
-
-        if (response.isReverted()) {
-            throw nonRetryable("Ethereum contract call reverted");
-        }
-
-        String value = response.getValue();
-        if (!StringUtils.hasText(value)) {
-            throw nonRetryable("Ethereum contract call returned no value");
-        }
-
-        final List<Type> decoded;
-        try {
-            decoded = decodeUint256(value);
-        } catch (RuntimeException exception) {
-            throw nonRetryable("Ethereum contract call returned malformed data");
-        }
+                false
+        ).orElseThrow();
 
         if (decoded.size() != 1 || !(decoded.getFirst() instanceof Uint256 uint)) {
             throw nonRetryable("Ethereum contract call returned malformed data");
         }
 
         return requireNonNegativeResponse(uint.getValue(), operation);
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private List<Type> decodeUint256(String value) {
-        // Web3j's Function accepts List<TypeReference<?>> while its decoder
-        // retains the older invariant List<TypeReference<Type>> signature.
-        return FunctionReturnDecoder.decode(value, (List) UINT256_OUTPUT);
     }
 
     private BlockReference mapBlock(
@@ -544,6 +610,37 @@ public final class EthereumRpcClient {
         return response;
     }
 
+    private EthCall sendContractCall(
+            String operation,
+            Request<?, EthCall> request,
+            boolean allowRevert
+    ) {
+        final EthCall response;
+
+        try {
+            response = request.send();
+        } catch (IOException exception) {
+            throw retryable("Ethereum RPC request failed: " + operation);
+        } catch (RuntimeException exception) {
+            throw retryable("Ethereum RPC client failed: " + operation);
+        }
+
+        if (response == null) {
+            throw nonRetryable("Ethereum RPC returned no response: " + operation);
+        }
+
+        if (response.hasError()
+                && !(allowRevert && response.isReverted())) {
+            boolean retryable = isRetryableRpcCode(response.getError().getCode());
+            throw new BlockchainGatewayException(
+                    "Ethereum RPC rejected request: " + operation,
+                    retryable
+            );
+        }
+
+        return response;
+    }
+
     private boolean isRetryableRpcCode(int code) {
         return code == -32603 || (code <= -32000 && code >= -32099);
     }
@@ -603,11 +700,11 @@ public final class EthereumRpcClient {
         return value;
     }
 
-    private BlockchainGatewayException retryable(String message) {
+    BlockchainGatewayException retryable(String message) {
         return new BlockchainGatewayException(message, true);
     }
 
-    private BlockchainGatewayException nonRetryable(String message) {
+    BlockchainGatewayException nonRetryable(String message) {
         return new BlockchainGatewayException(message, false);
     }
 

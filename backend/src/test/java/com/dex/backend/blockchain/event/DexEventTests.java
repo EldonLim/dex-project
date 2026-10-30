@@ -70,10 +70,13 @@ class DexEventTests {
                         BigInteger.TEN, placed.originalLots()
                 ),
                 () -> assertEquals(
-                        BigInteger.valueOf(4), cancelled.remainingLots()
+                        BigInteger.valueOf(101), cancelled.orderId()
                 ),
                 () -> assertEquals(
                         BigInteger.TWO, trade.fillLots()
+                ),
+                () -> assertEquals(
+                        fixture.buyer, trade.buyer()
                 )
         );
     }
@@ -192,9 +195,6 @@ class DexEventTests {
                         IllegalArgumentException.class, () -> fixture.placed()
                 ),
                 () -> assertThrows(
-                        IllegalArgumentException.class, () -> fixture.cancelled()
-                ),
-                () -> assertThrows(
                         IllegalArgumentException.class, () -> fixture.trade()
                 )
         );
@@ -286,29 +286,13 @@ class DexEventTests {
     }
 
     @Test
-    void rejectsNegativeRemainingQuantities() {
-        Fixture fixture = new Fixture();
-        fixture.remaining = NEGATIVE;
-
-        assertAll(
-                () -> assertThrows(
-                        IllegalArgumentException.class, () -> fixture.cancelled()
-                ),
-                () -> assertInvalidTrade(f -> f.buyRemaining = NEGATIVE),
-                () -> assertInvalidTrade(f -> f.sellRemaining = NEGATIVE)
-        );
-    }
-
-    @Test
-    void acceptsZeroRemainingQuantities() {
-        Fixture fixture = new Fixture();
-        fixture.remaining = ZERO;
-        fixture.buyRemaining = ZERO;
-        fixture.sellRemaining = ZERO;
-
-        assertEquals(ZERO, fixture.cancelled().remainingLots());
-        assertEquals(ZERO, fixture.trade().buyOrderRemainingLots());
-        assertEquals(ZERO, fixture.trade().sellOrderRemainingLots());
+    void rejectsNonPositiveTradeTokenAmounts() {
+        for (BigInteger invalid : List.of(ZERO, NEGATIVE)) {
+            assertAll(
+                    () -> assertInvalidTrade(f -> f.baseAmount = invalid),
+                    () -> assertInvalidTrade(f -> f.quoteAmount = invalid)
+            );
+        }
     }
 
     @Test
@@ -474,14 +458,14 @@ class DexEventTests {
         private OrderSide side = OrderSide.BUY;
         private BigInteger price = BigInteger.valueOf(200);
         private BigInteger original = BigInteger.TEN;
-        private BigInteger remaining = BigInteger.valueOf(4);
-
         private BigInteger tradeId = ONE;
         private BigInteger buyOrderId = BigInteger.valueOf(101);
         private BigInteger sellOrderId = BigInteger.valueOf(102);
         private BigInteger fill = BigInteger.TWO;
-        private BigInteger buyRemaining = ONE;
-        private BigInteger sellRemaining = ZERO;
+        private EthereumAddress buyer = BASE;
+        private EthereumAddress seller = QUOTE;
+        private BigInteger baseAmount = BigInteger.valueOf(2000);
+        private BigInteger quoteAmount = BigInteger.valueOf(400);
 
         private MarketRegisteredEvent market() {
             return new MarketRegisteredEvent(
@@ -512,9 +496,7 @@ class DexEventTests {
         private OrderCancelledEvent cancelled() {
             return new OrderCancelledEvent(
                     metadata,
-                    orderId,
-                    marketId,
-                    remaining
+                    orderId
             );
         }
 
@@ -527,8 +509,10 @@ class DexEventTests {
                     sellOrderId,
                     fill,
                     price,
-                    buyRemaining,
-                    sellRemaining
+                    buyer,
+                    seller,
+                    baseAmount,
+                    quoteAmount
             );
         }
     }

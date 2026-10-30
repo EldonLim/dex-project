@@ -12,17 +12,25 @@ import com.dex.backend.config.DexProperties;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.web3j.crypto.Hash;
+import org.web3j.abi.FunctionEncoder;
+import org.web3j.abi.datatypes.Address;
+import org.web3j.abi.datatypes.Type;
+import org.web3j.abi.datatypes.Utf8String;
+import org.web3j.abi.datatypes.generated.Uint256;
+import org.web3j.abi.datatypes.generated.Uint8;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.DefaultBlockParameter;
 import org.web3j.protocol.core.DefaultBlockParameterName;
 import org.web3j.protocol.core.Request;
 import org.web3j.protocol.core.Response;
 import org.web3j.protocol.core.methods.request.Transaction;
+import org.web3j.protocol.core.methods.request.EthFilter;
 import org.web3j.protocol.core.methods.response.EthBlock;
 import org.web3j.protocol.core.methods.response.EthCall;
 import org.web3j.protocol.core.methods.response.EthChainId;
 import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
+import org.web3j.protocol.core.methods.response.EthLog;
 import org.web3j.protocol.core.methods.response.EthSendTransaction;
 import org.web3j.protocol.core.methods.response.EthTransaction;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
@@ -33,6 +41,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -181,6 +190,100 @@ class EthereumRpcClientTests {
                 .startsWith("0xdd62ed3e")
                 .contains(OWNER.value().substring(2))
                 .contains(SPENDER.value().substring(2));
+    }
+
+    @Test
+    void genericContractCallDecodesTheCheckedInOrderTuple()
+            throws IOException {
+        EthereumDexAbi.OrderStruct expected = new EthereumDexAbi.OrderStruct(
+                new Uint256(BigInteger.ONE.shiftLeft(180)),
+                new Address(OWNER.value()),
+                new Uint256(BigInteger.ONE),
+                new Uint8(BigInteger.ZERO),
+                new Uint256(BigInteger.valueOf(100)),
+                new Uint256(BigInteger.valueOf(60)),
+                new Uint256(BigInteger.valueOf(2_500_000)),
+                new Uint8(BigInteger.ZERO)
+        );
+        EthCall response = new EthCall();
+        String encoded = FunctionEncoder.encodeConstructor(List.of(expected));
+        response.setResult(encoded.startsWith("0x") ? encoded : "0x" + encoded);
+        doReturn(request(response)).when(web3j).ethCall(
+                any(),
+                eq(DefaultBlockParameterName.LATEST)
+        );
+
+        Optional<List<Type>> decoded = client().callContract(
+                DEX,
+                EthereumDexAbi.getOrder(expected.id.getValue()),
+                DefaultBlockParameterName.LATEST,
+                "order lookup",
+                true
+        );
+
+        assertThat(decoded).isPresent();
+        EthereumDexAbi.OrderStruct actual = (EthereumDexAbi.OrderStruct)
+                decoded.orElseThrow().getFirst();
+        assertThat(actual.id.getValue()).isEqualTo(expected.id.getValue());
+        assertThat(actual.owner.getValue()).isEqualTo(OWNER.value());
+        assertThat(actual.remainingLots.getValue())
+                .isEqualTo(BigInteger.valueOf(60));
+    }
+
+    @Test
+    void optionalContractReadMapsAConfirmedRevertToMissing()
+            throws IOException {
+        EthCall response = new EthCall();
+        Response.Error error = new Response.Error(
+                -32000,
+                "sensitive node revert text"
+        );
+        error.setData(FunctionEncoder.encode(
+                "Error",
+                List.of(new Utf8String("Order does not exist"))
+        ));
+        response.setError(error);
+        doReturn(request(response)).when(web3j).ethCall(
+                any(),
+                eq(DefaultBlockParameterName.LATEST)
+        );
+
+        assertThat(client().callContract(
+                DEX,
+                EthereumDexAbi.getOrder(BigInteger.ONE),
+                DefaultBlockParameterName.LATEST,
+                "order lookup",
+                true
+        )).isEmpty();
+    }
+
+    @Test
+    void logReadsUseInclusiveRangeAndConfiguredContracts()
+            throws IOException {
+        EthLog.LogObject log = new EthLog.LogObject();
+        log.setAddress(DEX.value());
+        EthLog response = new EthLog();
+        response.setResult(List.of(log));
+        doReturn(request(response)).when(web3j).ethGetLogs(any());
+
+        assertThat(client().getLogs(
+                new com.dex.backend.blockchain.model.BlockRange(
+                        BigInteger.valueOf(10),
+                        BigInteger.valueOf(20)
+                ),
+                List.of(DEX, MARKET_REGISTRY)
+        )).containsExactly(log);
+
+        ArgumentCaptor<EthFilter> filter = ArgumentCaptor.forClass(
+                EthFilter.class
+        );
+        verify(web3j).ethGetLogs(filter.capture());
+        assertThat(filter.getValue().getFromBlock().getValue())
+                .isEqualTo("0xa");
+        assertThat(filter.getValue().getToBlock().getValue())
+                .isEqualTo("0x14");
+        assertThat(filter.getValue().getAddress())
+                .containsExactly(DEX.value(), MARKET_REGISTRY.value());
     }
 
     @Test

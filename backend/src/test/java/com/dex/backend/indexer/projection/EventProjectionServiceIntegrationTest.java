@@ -131,9 +131,7 @@ class EventProjectionServiceIntegrationTest {
 
         OrderCancelledEvent cancellation = new OrderCancelledEvent(
                 metadata(fixture, 103, 3),
-                SELL_ORDER_ID,
-                MARKET_ID,
-                BigInteger.valueOf(100)
+                SELL_ORDER_ID
         );
 
         assertEquals(EventProjectionResult.APPLIED, projectionService.apply(cancellation));
@@ -162,8 +160,10 @@ class EventProjectionServiceIntegrationTest {
                 SELL_ORDER_ID,
                 BigInteger.valueOf(40),
                 BigInteger.TEN,
-                BigInteger.ZERO,
-                BigInteger.valueOf(61)
+                BUYER,
+                SELLER,
+                BigInteger.ONE,
+                BigInteger.valueOf(400)
         );
 
         assertThrows(
@@ -288,8 +288,10 @@ class EventProjectionServiceIntegrationTest {
                 fixture.tradeEvent().sellOrderId(),
                 fixture.tradeEvent().fillLots(),
                 BigInteger.valueOf(11),
-                fixture.tradeEvent().buyOrderRemainingLots(),
-                fixture.tradeEvent().sellOrderRemainingLots()
+                fixture.tradeEvent().buyer(),
+                fixture.tradeEvent().seller(),
+                fixture.tradeEvent().baseAmountAtoms(),
+                BigInteger.valueOf(440)
         );
 
         assertThrows(
@@ -461,8 +463,10 @@ class EventProjectionServiceIntegrationTest {
                 SELL_ORDER_ID,
                 BigInteger.valueOf(40),
                 BigInteger.TEN,
-                BigInteger.ZERO,
-                BigInteger.valueOf(60)
+                BUYER,
+                SELLER,
+                new BigInteger("40000000000000000000"),
+                BigInteger.valueOf(400)
         );
 
         return new ProjectionFixture(

@@ -114,11 +114,14 @@ block; a missing or changed block is retried without releasing the reservation.
 
 `SUCCEEDED` remains unresolved until its matching `TradeExecutedEvent` is
 indexed. The indexer validates deployment, transaction hash, market, both order
-IDs, fill quantity, and execution price before marking the attempt `CONFIRMED`. An event without
-a local attempt is still projected normally. A local mismatch rolls back the
-batch and pauses indexing. If the checkpoint has already passed the successful
-receipt block without confirming the attempt, settlement execution halts rather
-than silently releasing or permanently ignoring the reservation.
+IDs, fill quantity, execution price, participants, and token amounts before
+marking the attempt `CONFIRMED`. Post-trade remainders are derived by applying
+the event's fill quantity to the prior confirmed projection because the current
+Solidity event does not emit them. An event without a local attempt is still
+projected normally. A local mismatch rolls back the batch and pauses indexing.
+If the checkpoint has already passed the successful receipt block without
+confirming the attempt, settlement execution halts rather than silently
+releasing or permanently ignoring the reservation.
 
 `REVERTED` becomes terminal only after the indexer checkpoint has processed
 through the receipt block. This reuses the configured confirmation-depth policy.

@@ -29,6 +29,7 @@ import com.dex.backend.persistence.trade.TradeRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigInteger;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -145,12 +146,8 @@ public class EventProjectionService {
                 event
         );
 
-        if (!order.getMarketId().equals(event.marketId())) {
-            throw projectionFailure(event, "Cancellation market does not match the order");
-        }
-
         try {
-            order.cancel(event.remainingLots());
+            order.cancel();
         } catch (IllegalArgumentException | IllegalStateException exception) {
             throw projectionFailure(event, exception.getMessage());
         }
@@ -158,7 +155,10 @@ public class EventProjectionService {
 
     private void applyTradeExecuted(TradeExecutedEvent event) {
         String deploymentId = event.metadata().deploymentId();
-        requireMarket(new MarketEntityId(deploymentId, event.marketId()), event);
+        MarketEntity market = requireMarket(
+                new MarketEntityId(deploymentId, event.marketId()),
+                event
+        );
 
         OrderEntity buyOrder = requireOrder(
                 new OrderEntityId(deploymentId, event.buyOrderId()),
@@ -171,11 +171,17 @@ public class EventProjectionService {
 
         verifyTradeOrders(event, buyOrder, sellOrder);
 
+        BigInteger buyRemainingLots = buyOrder.getRemainingLots()
+                .subtract(event.fillLots());
+        BigInteger sellRemainingLots = sellOrder.getRemainingLots()
+                .subtract(event.fillLots());
+
         try {
-            buyOrder.validateFill(event.fillLots(), event.buyOrderRemainingLots());
-            sellOrder.validateFill(event.fillLots(), event.sellOrderRemainingLots());
-            buyOrder.applyFill(event.fillLots(), event.buyOrderRemainingLots());
-            sellOrder.applyFill(event.fillLots(), event.sellOrderRemainingLots());
+            verifyTradeAmountsAndOwners(event, market, buyOrder, sellOrder);
+            buyOrder.validateFill(event.fillLots(), buyRemainingLots);
+            sellOrder.validateFill(event.fillLots(), sellRemainingLots);
+            buyOrder.applyFill(event.fillLots(), buyRemainingLots);
+            sellOrder.applyFill(event.fillLots(), sellRemainingLots);
         } catch (IllegalArgumentException | IllegalStateException exception) {
             throw projectionFailure(event, exception.getMessage());
         }
@@ -200,8 +206,8 @@ public class EventProjectionService {
                 event.sellOrderId(),
                 event.fillLots(),
                 event.executionPriceQuoteAtomsPerLot(),
-                event.buyOrderRemainingLots(),
-                event.sellOrderRemainingLots(),
+                buyRemainingLots,
+                sellRemainingLots,
                 position.blockNumber(),
                 position.transactionIndex(),
                 metadata.blockHash(),
@@ -224,6 +230,32 @@ public class EventProjectionService {
         }
     }
 
+    private void verifyTradeAmountsAndOwners(
+            TradeExecutedEvent event,
+            MarketEntity market,
+            OrderEntity buyOrder,
+            OrderEntity sellOrder
+    ) {
+        if (!buyOrder.getOwnerAddress().equals(event.buyer())
+                || !sellOrder.getOwnerAddress().equals(event.seller())) {
+            throw new IllegalStateException(
+                    "Trade participants do not match the projected orders"
+            );
+        }
+
+        BigInteger expectedBaseAmount = event.fillLots()
+                .multiply(market.getBaseLotSizeAtoms());
+        BigInteger expectedQuoteAmount = event.fillLots()
+                .multiply(event.executionPriceQuoteAtomsPerLot());
+
+        if (!expectedBaseAmount.equals(event.baseAmountAtoms())
+                || !expectedQuoteAmount.equals(event.quoteAmountAtoms())) {
+            throw new IllegalStateException(
+                    "Trade token amounts do not match the market units"
+            );
+        }
+    }
+
     private void verifyTradeOrders(
             TradeExecutedEvent event,
             OrderEntity buyOrder,
@@ -236,6 +268,17 @@ public class EventProjectionService {
         if (!buyOrder.getMarketId().equals(event.marketId())
                 || !sellOrder.getMarketId().equals(event.marketId())) {
             throw projectionFailure(event, "Trade orders do not belong to the event market");
+        }
+
+        if (event.executionPriceQuoteAtomsPerLot().compareTo(
+                buyOrder.getLimitPriceQuoteAtomsPerLot()
+        ) > 0 || event.executionPriceQuoteAtomsPerLot().compareTo(
+                sellOrder.getLimitPriceQuoteAtomsPerLot()
+        ) < 0) {
+            throw projectionFailure(
+                    event,
+                    "Trade execution price violates an order limit"
+            );
         }
     }
 

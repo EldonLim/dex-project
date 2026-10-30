@@ -364,8 +364,10 @@ public final class MockBlockchainGateway implements BlockchainGateway {
                 sell.orderId(),
                 fill,
                 executionPrice,
-                updatedBuy.remainingLots(),
-                updatedSell.remainingLots()
+                buy.owner(),
+                sell.owner(),
+                baseAmount,
+                quoteAmount
         );
 
         TransactionObservation observation = TransactionObservation.succeeded(
