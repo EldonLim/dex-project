@@ -31,6 +31,8 @@ import org.web3j.protocol.core.methods.response.EthCall;
 import org.web3j.protocol.core.methods.response.EthChainId;
 import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
+import org.web3j.protocol.core.methods.response.EthEstimateGas;
+import org.web3j.protocol.core.methods.response.EthGasPrice;
 import org.web3j.protocol.core.methods.response.EthLog;
 import org.web3j.protocol.core.methods.response.EthSendTransaction;
 import org.web3j.protocol.core.methods.response.EthTransaction;
@@ -369,6 +371,48 @@ public final class EthereumRpcClient {
         } catch (RuntimeException exception) {
             throw nonRetryable(
                     "Ethereum response contains invalid executor nonce"
+            );
+        }
+    }
+
+    public BigInteger getGasPrice() {
+        EthGasPrice response = send("gas price", web3j.ethGasPrice());
+        try {
+            return requireNonNegativeResponse(
+                    response.getGasPrice(),
+                    "gas price"
+            );
+        } catch (BlockchainGatewayException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw nonRetryable(
+                    "Ethereum response contains invalid gas price"
+            );
+        }
+    }
+
+    public BigInteger estimateGas(Transaction transaction) {
+        Objects.requireNonNull(transaction, "transaction must not be null");
+        EthEstimateGas response = send(
+                "settlement gas estimate",
+                web3j.ethEstimateGas(transaction)
+        );
+        try {
+            BigInteger estimate = requireNonNegativeResponse(
+                    response.getAmountUsed(),
+                    "gas estimate"
+            );
+            if (estimate.signum() == 0) {
+                throw nonRetryable(
+                        "Ethereum response contains invalid gas estimate"
+                );
+            }
+            return estimate;
+        } catch (BlockchainGatewayException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw nonRetryable(
+                    "Ethereum response contains invalid gas estimate"
             );
         }
     }

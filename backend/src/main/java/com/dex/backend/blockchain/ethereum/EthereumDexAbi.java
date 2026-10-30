@@ -85,6 +85,24 @@ final class EthereumDexAbi {
         );
     }
 
+    static Function executeTrade(
+            BigInteger buyOrderId,
+            BigInteger sellOrderId,
+            BigInteger fillLots,
+            BigInteger executionPrice
+    ) {
+        return new Function(
+                "executeTrade",
+                List.of(
+                        new Uint256(buyOrderId),
+                        new Uint256(sellOrderId),
+                        new Uint256(fillLots),
+                        new Uint256(executionPrice)
+                ),
+                List.of()
+        );
+    }
+
     static Function tokenSymbol() {
         return new Function(
                 "symbol",

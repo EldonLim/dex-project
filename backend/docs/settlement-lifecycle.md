@@ -84,6 +84,12 @@ prevents overlapping invocations. Preparing and signing a `RESERVED` attempt
 happens outside any database transaction. A short lifecycle transaction then
 stores the exact signed bytes together with the nonce and transaction hash.
 
+The Ethereum adapter prepares the exact checked-in four-argument
+`executeTrade` call, reads the executor's pending nonce and current node gas
+price, estimates that call, adds a bounded gas margin, and signs one legacy
+transaction with EIP-155 chain replay protection. No database transaction is
+held during those RPC or signing operations.
+
 After a restart, a `SIGNED` attempt is reconstructed from those durable fields
 and is not prepared or signed again. The executor submits the exact persisted
 payload outside a database transaction, verifies that the gateway returns the

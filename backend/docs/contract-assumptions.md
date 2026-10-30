@@ -177,11 +177,14 @@ The ABI is known, but these operational and policy decisions remain:
 
 ## Remaining backend integration work
 
-- Encode and sign `executeTrade` with the configured executor.
-- Compose the ABI client and generic RPC client into the complete Ethereum
-  `BlockchainGateway` only when every gateway method is implemented.
-- Add deployment metadata generation and an end-to-end local-chain test.
-- Keep mock and Ethereum gateway contract tests aligned.
+The backend now encodes and signs `executeTrade` and composes the ABI and RPC
+clients into a complete Ethereum `BlockchainGateway` when mode is explicitly
+`ETHEREUM`. Remaining integration work is operational:
+
+- Add stable deployment metadata generation and an end-to-end local-chain test.
+- Exercise indexing, matching, settlement, and restart recovery against the
+  checked-in contracts as one acceptance flow.
+- Keep mock and Ethereum gateway contract tests aligned as the contracts evolve.
 
 Do not edit historical Flyway migrations. Persisted model changes require a new
 migration after V4.

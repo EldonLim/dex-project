@@ -23,9 +23,9 @@ cd backend
 ```
 
 The example environment explicitly selects `MOCK` blockchain mode. Ethereum
-configuration values are defined, but do not select `ETHEREUM` mode yet: the
-full gateway still needs settlement encoding and signing. Never commit `.env`
-or real private keys.
+configuration values are defined, but should be used only with deployment
+metadata matching the checked-in contracts. Never commit `.env` or real
+private keys.
 
 Match discovery excludes both orders referenced by unresolved execution
 attempts. The operational matcher can preflight and durably reserve one match,
@@ -54,11 +54,18 @@ not supply post-trade remainders; the indexer therefore derives those values in
 strict log order from the confirmed projection. Token symbols and decimals are
 read from the ERC-20 contracts at the market event's block.
 
-The Ethereum client is intentionally not yet registered as a
-`BlockchainGateway`. Ethereum mode still needs `executeTrade` transaction
-encoding and signing before one complete adapter can satisfy the entire
-gateway contract. It never returns placeholder data and never silently falls
-back to mock mode.
+The complete Ethereum `BlockchainGateway` is registered only when mode is
+explicitly `ETHEREUM`. It composes the RPC and ABI clients, estimates gas,
+encodes the exact four-argument `executeTrade` call, and signs a legacy EIP-155
+transaction using the configured chain ID and executor. Read-only indexing can
+start without executor credentials; Ethereum matching requires a configured
+private key. The adapter never returns placeholder data and never silently
+falls back to mock mode.
+
+The controlled RPC and ABI tests do not replace a deployment-level test. Before
+using Ethereum mode as an integrated system, generate stable local deployment
+metadata and run the full Anvil/Hardhat acceptance flow described in the team
+checklist.
 
 - [Solidity integration reference](docs/contract-assumptions.md)
 - [Member 2 integration checklist](docs/member-2-integration-checklist.md)
@@ -121,6 +128,11 @@ short `RESERVED` to `SIGNED` lifecycle transition containing the executor nonce,
 transaction hash, and exact signed transaction payload. Persisting the payload
 allows a later process to recover the identical transaction after a restart;
 the database and its backups must therefore be treated as sensitive.
+
+In Ethereum mode, preparation obtains the executor's pending nonce and the
+node's gas price, estimates the exact `executeTrade` call, adds a bounded gas
+margin, and signs once with EIP-155 replay protection. The durable payload—not
+a newly generated replacement—is used for every later broadcast or recovery.
 
 An existing `SIGNED` attempt is reconstructed from its durable fields and is
 never signed again. The executor broadcasts that exact payload and records the

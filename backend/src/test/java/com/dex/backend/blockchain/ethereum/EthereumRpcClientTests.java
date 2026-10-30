@@ -30,6 +30,8 @@ import org.web3j.protocol.core.methods.response.EthCall;
 import org.web3j.protocol.core.methods.response.EthChainId;
 import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
+import org.web3j.protocol.core.methods.response.EthEstimateGas;
+import org.web3j.protocol.core.methods.response.EthGasPrice;
 import org.web3j.protocol.core.methods.response.EthLog;
 import org.web3j.protocol.core.methods.response.EthSendTransaction;
 import org.web3j.protocol.core.methods.response.EthTransaction;
@@ -344,6 +346,43 @@ class EthereumRpcClientTests {
         assertThatThrownBy(client::getPendingExecutorNonce)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Executor credentials are not configured");
+    }
+
+    @Test
+    void gasPriceAndEstimatePreserveExactLargeValues() throws IOException {
+        BigInteger gasPrice = BigInteger.ONE.shiftLeft(100);
+        BigInteger gasEstimate = BigInteger.ONE.shiftLeft(90);
+        EthGasPrice gasPriceResponse = new EthGasPrice();
+        gasPriceResponse.setResult("0x" + gasPrice.toString(16));
+        EthEstimateGas estimateResponse = new EthEstimateGas();
+        estimateResponse.setResult("0x" + gasEstimate.toString(16));
+        doReturn(request(gasPriceResponse)).when(web3j).ethGasPrice();
+        doReturn(request(estimateResponse)).when(web3j).ethEstimateGas(any());
+
+        assertThat(client().getGasPrice()).isEqualTo(gasPrice);
+        assertThat(client().estimateGas(Transaction.createEthCallTransaction(
+                EXECUTOR.value(),
+                DEX.value(),
+                "0x1234"
+        ))).isEqualTo(gasEstimate);
+    }
+
+    @Test
+    void zeroGasEstimateIsANonRetryableSafetyFailure() throws IOException {
+        EthEstimateGas response = new EthEstimateGas();
+        response.setResult("0x0");
+        doReturn(request(response)).when(web3j).ethEstimateGas(any());
+
+        assertThatThrownBy(() -> client().estimateGas(
+                Transaction.createEthCallTransaction(
+                        EXECUTOR.value(),
+                        DEX.value(),
+                        "0x1234"
+                )
+        )).isInstanceOfSatisfying(
+                BlockchainGatewayException.class,
+                exception -> assertThat(exception.isRetryable()).isFalse()
+        ).hasMessage("Ethereum response contains invalid gas estimate");
     }
 
     @Test
