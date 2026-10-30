@@ -90,6 +90,11 @@ allowed for the configured deployment. `RESERVED`, `SIGNED`, `SUBMITTED`, and
 RPC work while one exists. Step 6 will prepare, sign, broadcast, and reconcile
 the reserved settlement.
 
+The durable execution-attempt state machine and its crash-safety rules are
+documented in [Settlement lifecycle](docs/settlement-lifecycle.md). In
+particular, a successful receipt is not enough to mark an attempt `CONFIRMED`;
+the indexed trade event must update the projections first.
+
 ## Read API
 
 The versioned read API is available under `/api/v1`. It reads the confirmed

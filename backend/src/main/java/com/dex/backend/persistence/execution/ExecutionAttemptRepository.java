@@ -6,10 +6,16 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface ExecutionAttemptRepository
         extends JpaRepository<ExecutionAttemptEntity, UUID> {
+
+    Optional<ExecutionAttemptEntity> findByAttemptIdAndDeploymentId(
+            UUID attemptId,
+            String deploymentId
+    );
 
     @Query("""
             SELECT a.buyOrderId AS buyOrderId,

@@ -2,6 +2,8 @@ package com.dex.backend.persistence.execution;
 
 import com.dex.backend.blockchain.model.EthereumAddress;
 import com.dex.backend.blockchain.model.Hash256;
+import com.dex.backend.blockchain.execution.PreparedSettlement;
+import com.dex.backend.blockchain.execution.SettlementRequest;
 import com.dex.backend.matcher.MatchProposal;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -18,6 +20,9 @@ import java.util.UUID;
 @Entity
 @Table(name = "execution_attempts")
 public class ExecutionAttemptEntity {
+
+    static final int MAX_ERROR_CODE_LENGTH = 64;
+    static final int MAX_DETAIL_LENGTH = 2_000;
 
     @Id
     @Column(name = "attempt_id", nullable = false, updatable = false)
@@ -115,6 +120,200 @@ public class ExecutionAttemptEntity {
                 executorAddress,
                 createdAt
         );
+    }
+
+    public void markSigned(
+            PreparedSettlement preparedSettlement,
+            Instant occurredAt
+    ) {
+        Objects.requireNonNull(
+                preparedSettlement,
+                "preparedSettlement must not be null"
+        );
+        requirePreparedSettlementMatches(preparedSettlement);
+        requireTimestamp(occurredAt);
+        requireTransition(ExecutionAttemptStatus.SIGNED);
+
+        executorNonce = preparedSettlement.nonce();
+        transactionHash = preparedSettlement.transactionHash();
+        status = ExecutionAttemptStatus.SIGNED;
+        updatedAt = occurredAt;
+        clearFailureDetails();
+    }
+
+    public void markSubmitted(Instant occurredAt) {
+        requireTimestamp(occurredAt);
+        requireTransition(ExecutionAttemptStatus.SUBMITTED);
+        requireTransactionIdentity();
+
+        if (submittedAt == null) {
+            submittedAt = occurredAt;
+        }
+        status = ExecutionAttemptStatus.SUBMITTED;
+        updatedAt = occurredAt;
+        clearFailureDetails();
+    }
+
+    public void markUncertain(
+            String code,
+            String message,
+            Instant occurredAt
+    ) {
+        String normalizedCode = requireBoundedText(
+                code,
+                "errorCode",
+                MAX_ERROR_CODE_LENGTH
+        );
+        String normalizedMessage = requireBoundedText(
+                message,
+                "errorMessage",
+                MAX_DETAIL_LENGTH
+        );
+        requireTimestamp(occurredAt);
+        requireTransition(ExecutionAttemptStatus.UNCERTAIN);
+        requireTransactionIdentity();
+
+        status = ExecutionAttemptStatus.UNCERTAIN;
+        updatedAt = occurredAt;
+        errorCode = normalizedCode;
+        errorMessage = normalizedMessage;
+    }
+
+    /**
+     * Marks the attempt confirmed only after the indexed trade has updated the
+     * confirmed projections. A successful receipt alone is not sufficient.
+     */
+    public void markConfirmed(Instant occurredAt) {
+        requireTimestamp(occurredAt);
+        requireTransition(ExecutionAttemptStatus.CONFIRMED);
+        requireTransactionIdentity();
+
+        status = ExecutionAttemptStatus.CONFIRMED;
+        updatedAt = occurredAt;
+        resolvedAt = occurredAt;
+        clearFailureDetails();
+    }
+
+    public void markReverted(String reason, Instant occurredAt) {
+        String normalizedReason = optionalBoundedText(
+                reason,
+                "revertReason",
+                MAX_DETAIL_LENGTH
+        );
+        requireTimestamp(occurredAt);
+        requireTransition(ExecutionAttemptStatus.REVERTED);
+        requireTransactionIdentity();
+
+        status = ExecutionAttemptStatus.REVERTED;
+        updatedAt = occurredAt;
+        resolvedAt = occurredAt;
+        revertReason = normalizedReason;
+        clearFailureDetails();
+    }
+
+    public void abandon(
+            String code,
+            String message,
+            Instant occurredAt
+    ) {
+        String normalizedCode = requireBoundedText(
+                code,
+                "errorCode",
+                MAX_ERROR_CODE_LENGTH
+        );
+        String normalizedMessage = requireBoundedText(
+                message,
+                "errorMessage",
+                MAX_DETAIL_LENGTH
+        );
+        requireTimestamp(occurredAt);
+        requireTransition(ExecutionAttemptStatus.ABANDONED);
+
+        status = ExecutionAttemptStatus.ABANDONED;
+        updatedAt = occurredAt;
+        resolvedAt = occurredAt;
+        errorCode = normalizedCode;
+        errorMessage = normalizedMessage;
+    }
+
+    private void requirePreparedSettlementMatches(
+            PreparedSettlement preparedSettlement
+    ) {
+        SettlementRequest request = preparedSettlement.request();
+
+        if (!deploymentId.equals(request.deploymentId())
+                || !marketId.equals(request.marketId())
+                || !buyOrderId.equals(request.buyOrderId())
+                || !sellOrderId.equals(request.sellOrderId())
+                || !fillLots.equals(request.fillLots())
+                || !executorAddress.equals(
+                        preparedSettlement.executorAddress()
+                )) {
+            throw new IllegalArgumentException(
+                    "prepared settlement does not match the reserved attempt"
+            );
+        }
+    }
+
+    private void requireTransition(ExecutionAttemptStatus target) {
+        if (!status.canTransitionTo(target)) {
+            throw new ExecutionAttemptTransitionException(
+                    "Cannot transition execution attempt from "
+                            + status + " to " + target
+            );
+        }
+    }
+
+    private void requireTimestamp(Instant occurredAt) {
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+
+        if (occurredAt.isBefore(updatedAt)) {
+            throw new IllegalArgumentException(
+                    "occurredAt must not be before the previous update"
+            );
+        }
+    }
+
+    private void requireTransactionIdentity() {
+        if (executorNonce == null || transactionHash == null) {
+            throw new ExecutionAttemptTransitionException(
+                    "Signed transaction identity is required for status "
+                            + status
+            );
+        }
+    }
+
+    private void clearFailureDetails() {
+        errorCode = null;
+        errorMessage = null;
+    }
+
+    private static String requireBoundedText(
+            String value,
+            String fieldName,
+            int maximumLength
+    ) {
+        Objects.requireNonNull(value, fieldName + " must not be null");
+        String normalized = value.strip();
+
+        if (normalized.isEmpty() || normalized.length() > maximumLength) {
+            throw new IllegalArgumentException(
+                    fieldName + " must be nonblank and at most "
+                            + maximumLength + " characters"
+            );
+        }
+        return normalized;
+    }
+
+    private static String optionalBoundedText(
+            String value,
+            String fieldName,
+            int maximumLength
+    ) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return requireBoundedText(value, fieldName, maximumLength);
     }
 
     public UUID getAttemptId() {
