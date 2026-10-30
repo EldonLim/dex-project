@@ -64,7 +64,10 @@ public record DexProperties(
     }
 
     public record Executor(
-            String privateKey
+            String privateKey,
+
+            @DefaultValue("2s")
+            @NotNull Duration pollInterval
     ) {
         @Override
         public String toString() {

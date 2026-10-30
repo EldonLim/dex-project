@@ -92,7 +92,9 @@ class StatusApiIntegrationTest {
                 .andExpect(jsonPath("$.indexer.lastErrorAt", nullValue()))
                 .andExpect(jsonPath("$.indexer.paused", is(false)))
                 .andExpect(jsonPath("$.matcher.enabled", is(false)))
-                .andExpect(jsonPath("$.matcher.state", is("DISABLED")));
+                .andExpect(jsonPath("$.matcher.state", is("DISABLED")))
+                .andExpect(jsonPath("$.executor.enabled", is(false)))
+                .andExpect(jsonPath("$.executor.state", is("DISABLED")));
     }
 
     @Test

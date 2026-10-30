@@ -8,6 +8,8 @@ import com.dex.backend.persistence.deployment.ChainDeploymentEntity;
 import com.dex.backend.persistence.deployment.ChainDeploymentRepository;
 import com.dex.backend.persistence.indexer.IndexerCheckpointEntity;
 import com.dex.backend.persistence.indexer.IndexerCheckpointRepository;
+import com.dex.backend.settlement.SettlementExecutorWorker;
+import com.dex.backend.settlement.SettlementExecutorWorkerState;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,19 +24,22 @@ public class StatusQueryService {
     private final DexProperties properties;
     private final Optional<IndexerPollingWorker> pollingWorker;
     private final Optional<MatcherPollingWorker> matcherWorker;
+    private final Optional<SettlementExecutorWorker> executorWorker;
 
     public StatusQueryService(
             ChainDeploymentRepository deploymentRepository,
             IndexerCheckpointRepository checkpointRepository,
             DexProperties properties,
             Optional<IndexerPollingWorker> pollingWorker,
-            Optional<MatcherPollingWorker> matcherWorker
+            Optional<MatcherPollingWorker> matcherWorker,
+            Optional<SettlementExecutorWorker> executorWorker
     ) {
         this.deploymentRepository = deploymentRepository;
         this.checkpointRepository = checkpointRepository;
         this.properties = properties;
         this.pollingWorker = pollingWorker;
         this.matcherWorker = matcherWorker;
+        this.executorWorker = executorWorker;
     }
 
     @Transactional(readOnly = true)
@@ -53,11 +58,13 @@ public class StatusQueryService {
                 paused
         );
         MatcherStatus matcherStatus = determineMatcherStatus();
+        ExecutorStatus executorStatus = determineExecutorStatus();
         BackendOperationalStatus overallStatus = determineOverallStatus(
                 deployment.isPresent(),
                 checkpoint.isPresent(),
                 indexerStatus,
-                matcherStatus
+                matcherStatus,
+                executorStatus
         );
 
         return new BackendStatusResponse(
@@ -65,7 +72,14 @@ public class StatusQueryService {
                 properties.blockchain().mode(),
                 toDeploymentResponse(deploymentId, deployment),
                 toIndexerResponse(checkpoint, indexerStatus, paused),
-                new MatcherStatusResponse(properties.matcher().enabled(), matcherStatus)
+                new MatcherStatusResponse(
+                        properties.matcher().enabled(),
+                        matcherStatus
+                ),
+                new ExecutorStatusResponse(
+                        properties.matcher().enabled(),
+                        executorStatus
+                )
         );
     }
 
@@ -99,19 +113,23 @@ public class StatusQueryService {
             boolean deploymentRegistered,
             boolean checkpointPresent,
             IndexerStatus indexerStatus,
-            MatcherStatus matcherStatus
+            MatcherStatus matcherStatus,
+            ExecutorStatus executorStatus
     ) {
         if (indexerStatus == IndexerStatus.DISABLED
                 || indexerStatus == IndexerStatus.PAUSED
                 || indexerStatus == IndexerStatus.RETRYING
                 || matcherStatus == MatcherStatus.RETRYING
-                || matcherStatus == MatcherStatus.HALTED) {
+                || matcherStatus == MatcherStatus.HALTED
+                || executorStatus == ExecutorStatus.RETRYING
+                || executorStatus == ExecutorStatus.HALTED) {
             return BackendOperationalStatus.DEGRADED;
         }
         if (!deploymentRegistered
                 || !checkpointPresent
                 || matcherStatus == MatcherStatus.STARTING
-                || matcherStatus == MatcherStatus.WAITING_FOR_INDEXER) {
+                || matcherStatus == MatcherStatus.WAITING_FOR_INDEXER
+                || executorStatus == ExecutorStatus.STARTING) {
             return BackendOperationalStatus.STARTING;
         }
         return BackendOperationalStatus.HEALTHY;
@@ -142,6 +160,37 @@ public class StatusQueryService {
             case RESERVED -> MatcherStatus.RESERVED;
             case RETRYING -> MatcherStatus.RETRYING;
             case HALTED -> MatcherStatus.HALTED;
+        };
+    }
+
+    private ExecutorStatus determineExecutorStatus() {
+        if (!properties.matcher().enabled()) {
+            return ExecutorStatus.DISABLED;
+        }
+
+        return executorWorker.map(worker -> {
+            if (worker.isHalted()) {
+                return ExecutorStatus.HALTED;
+            }
+            if (worker.isRunning()) {
+                return ExecutorStatus.RUNNING;
+            }
+            return toExecutorStatus(worker.getState());
+        }).orElse(ExecutorStatus.STARTING);
+    }
+
+    private ExecutorStatus toExecutorStatus(
+            SettlementExecutorWorkerState state
+    ) {
+        return switch (state) {
+            case STARTING -> ExecutorStatus.STARTING;
+            case IDLE -> ExecutorStatus.IDLE;
+            case RUNNING -> ExecutorStatus.RUNNING;
+            case SIGNED -> ExecutorStatus.SIGNED;
+            case WAITING_FOR_RECONCILIATION ->
+                    ExecutorStatus.WAITING_FOR_RECONCILIATION;
+            case RETRYING -> ExecutorStatus.RETRYING;
+            case HALTED -> ExecutorStatus.HALTED;
         };
     }
 

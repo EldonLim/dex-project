@@ -22,6 +22,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigInteger;
@@ -64,6 +66,9 @@ class ExecutionAttemptLifecycleServiceIntegrationTest {
     @Autowired
     private ChainDeploymentRepository deploymentRepository;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @BeforeEach
     void clearDatabase() {
         attemptRepository.deleteAll();
@@ -105,6 +110,10 @@ class ExecutionAttemptLifecycleServiceIntegrationTest {
                 () -> assertEquals(
                         prepared.transactionHash(),
                         stored.getTransactionHash()
+                ),
+                () -> assertEquals(
+                        prepared,
+                        stored.toPreparedSettlement()
                 ),
                 () -> assertNotNull(stored.getSubmittedAt()),
                 () -> assertNotNull(stored.getResolvedAt()),
@@ -254,6 +263,67 @@ class ExecutionAttemptLifecycleServiceIntegrationTest {
                 ),
                 () -> assertNull(stored.getResolvedAt()),
                 () -> assertTrue(hasUnresolved(DEPLOYMENT_ID))
+        );
+    }
+
+    @Test
+    void databaseRejectsIncompleteOrMalformedSignedPayloads() {
+        UUID attemptId = saveReservedFixture(DEPLOYMENT_ID);
+
+        assertThrows(
+                DataIntegrityViolationException.class,
+                () -> jdbcTemplate.update(
+                        """
+                        UPDATE execution_attempts
+                        SET status = 'SIGNED',
+                            executor_nonce = 1,
+                            transaction_hash = ?,
+                            signed_transaction_hex = '0x0'
+                        WHERE attempt_id = ?
+                        """,
+                        hash(77).value(),
+                        attemptId
+                )
+        );
+
+        assertEquals(
+                ExecutionAttemptStatus.RESERVED,
+                attemptRepository.findById(attemptId).orElseThrow().getStatus()
+        );
+    }
+
+    @Test
+    void databasePreservesNonceAndTransactionHashUniqueness() {
+        UUID firstAttemptId = saveReservedFixture(DEPLOYMENT_ID);
+        PreparedSettlement prepared = prepared(
+                DEPLOYMENT_ID,
+                BigInteger.ONE.shiftLeft(220)
+        );
+        lifecycleService.recordSigned(firstAttemptId, prepared);
+
+        UUID secondAttemptId = saveAttemptForExistingProjection(DEPLOYMENT_ID);
+
+        assertThrows(
+                DataIntegrityViolationException.class,
+                () -> lifecycleService.recordSigned(
+                        secondAttemptId,
+                        prepared
+                )
+        );
+
+        assertAll(
+                () -> assertEquals(
+                        ExecutionAttemptStatus.SIGNED,
+                        attemptRepository.findById(firstAttemptId)
+                                .orElseThrow()
+                                .getStatus()
+                ),
+                () -> assertEquals(
+                        ExecutionAttemptStatus.RESERVED,
+                        attemptRepository.findById(secondAttemptId)
+                                .orElseThrow()
+                                .getStatus()
+                )
         );
     }
 

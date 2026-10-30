@@ -22,7 +22,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(properties = {
         "dex.matcher.enabled=true",
-        "dex.matcher.poll-interval=1h"
+        "dex.matcher.poll-interval=1h",
+        "dex.executor.poll-interval=1h"
 })
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
@@ -42,7 +43,9 @@ class MatcherSchedulingEnabledIntegrationTest {
     void enablesWorkerAndIndependentSchedulingConfiguration() {
         assertTrue(properties.matcher().enabled());
         assertEquals(Duration.ofHours(1), properties.matcher().pollInterval());
+        assertEquals(Duration.ofHours(1), properties.executor().pollInterval());
         assertTrue(applicationContext.containsBean("matcherPollingWorker"));
+        assertTrue(applicationContext.containsBean("settlementExecutorWorker"));
         assertTrue(applicationContext.containsBean(
                 "matcherSchedulingConfiguration"
         ));
@@ -58,6 +61,8 @@ class MatcherSchedulingEnabledIntegrationTest {
                         "http://localhost:5173"
                 ))
                 .andExpect(jsonPath("$.matcher.enabled").value(true))
-                .andExpect(jsonPath("$.matcher.state").value("STARTING"));
+                .andExpect(jsonPath("$.matcher.state").value("STARTING"))
+                .andExpect(jsonPath("$.executor.enabled").value(true))
+                .andExpect(jsonPath("$.executor.state").value("STARTING"));
     }
 }

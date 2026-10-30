@@ -11,6 +11,8 @@ import com.dex.backend.persistence.deployment.ChainDeploymentEntity;
 import com.dex.backend.persistence.deployment.ChainDeploymentRepository;
 import com.dex.backend.persistence.indexer.IndexerCheckpointEntity;
 import com.dex.backend.persistence.indexer.IndexerCheckpointRepository;
+import com.dex.backend.settlement.SettlementExecutorWorker;
+import com.dex.backend.settlement.SettlementExecutorWorkerState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -39,11 +41,16 @@ class StatusQueryServiceTests {
             mock(IndexerCheckpointRepository.class);
     private final IndexerPollingWorker pollingWorker = mock(IndexerPollingWorker.class);
     private final MatcherPollingWorker matcherWorker = mock(MatcherPollingWorker.class);
+    private final SettlementExecutorWorker executorWorker =
+            mock(SettlementExecutorWorker.class);
 
     @BeforeEach
     void defaultToUninitializedState() {
         when(deploymentRepository.findById(DEPLOYMENT_ID)).thenReturn(Optional.empty());
         when(checkpointRepository.findById(DEPLOYMENT_ID)).thenReturn(Optional.empty());
+        when(executorWorker.getState()).thenReturn(
+                SettlementExecutorWorkerState.IDLE
+        );
     }
 
     @Test
@@ -74,6 +81,7 @@ class StatusQueryServiceTests {
         assertEquals(IndexerStatus.STARTING, response.indexer().state());
         assertNull(response.indexer().indexingLagBlocks());
         assertEquals(MatcherStatus.DISABLED, response.matcher().state());
+        assertEquals(ExecutorStatus.DISABLED, response.executor().state());
     }
 
     @Test
@@ -266,6 +274,85 @@ class StatusQueryServiceTests {
         assertEquals(MatcherStatus.HALTED, halted.matcher().state());
     }
 
+    @Test
+    void healthyExecutorRuntimeStatesPreserveHealthyOverallStatus() {
+        readyProjection();
+        when(matcherWorker.getState()).thenReturn(MatcherWorkerState.IDLE);
+
+        for (SettlementExecutorWorkerState state : new SettlementExecutorWorkerState[]{
+                SettlementExecutorWorkerState.IDLE,
+                SettlementExecutorWorkerState.SIGNED,
+                SettlementExecutorWorkerState.WAITING_FOR_RECONCILIATION
+        }) {
+            when(executorWorker.getState()).thenReturn(state);
+            BackendStatusResponse response = service(
+                    true,
+                    true,
+                    0,
+                    false,
+                    true,
+                    true
+            ).getStatus();
+
+            assertEquals(BackendOperationalStatus.HEALTHY, response.status());
+            assertEquals(state.name(), response.executor().state().name());
+        }
+    }
+
+    @Test
+    void runningExecutorTakesPrecedenceOverStoredState() {
+        readyProjection();
+        when(matcherWorker.getState()).thenReturn(MatcherWorkerState.IDLE);
+        when(executorWorker.isRunning()).thenReturn(true);
+        when(executorWorker.getState()).thenReturn(
+                SettlementExecutorWorkerState.RETRYING
+        );
+
+        BackendStatusResponse response = service(
+                true,
+                true,
+                0,
+                false,
+                true,
+                true
+        ).getStatus();
+
+        assertEquals(BackendOperationalStatus.HEALTHY, response.status());
+        assertEquals(ExecutorStatus.RUNNING, response.executor().state());
+    }
+
+    @Test
+    void retryingAndHaltedExecutorStatesAreDegraded() {
+        readyProjection();
+        when(matcherWorker.getState()).thenReturn(MatcherWorkerState.IDLE);
+        when(executorWorker.getState()).thenReturn(
+                SettlementExecutorWorkerState.RETRYING
+        );
+
+        BackendStatusResponse retrying = service(
+                true,
+                true,
+                0,
+                false,
+                true,
+                true
+        ).getStatus();
+        assertEquals(BackendOperationalStatus.DEGRADED, retrying.status());
+        assertEquals(ExecutorStatus.RETRYING, retrying.executor().state());
+
+        when(executorWorker.isHalted()).thenReturn(true);
+        BackendStatusResponse halted = service(
+                true,
+                true,
+                0,
+                false,
+                true,
+                true
+        ).getStatus();
+        assertEquals(BackendOperationalStatus.DEGRADED, halted.status());
+        assertEquals(ExecutorStatus.HALTED, halted.executor().state());
+    }
+
     private StatusQueryService service(
             boolean indexerEnabled,
             boolean matcherEnabled,
@@ -277,6 +364,7 @@ class StatusQueryServiceTests {
                 matcherEnabled,
                 confirmationDepth,
                 includeWorker,
+                false,
                 false
         );
     }
@@ -288,6 +376,24 @@ class StatusQueryServiceTests {
             boolean includeIndexerWorker,
             boolean includeMatcherWorker
     ) {
+        return service(
+                indexerEnabled,
+                matcherEnabled,
+                confirmationDepth,
+                includeIndexerWorker,
+                includeMatcherWorker,
+                includeMatcherWorker
+        );
+    }
+
+    private StatusQueryService service(
+            boolean indexerEnabled,
+            boolean matcherEnabled,
+            int confirmationDepth,
+            boolean includeIndexerWorker,
+            boolean includeMatcherWorker,
+            boolean includeExecutorWorker
+    ) {
         return new StatusQueryService(
                 deploymentRepository,
                 checkpointRepository,
@@ -297,6 +403,9 @@ class StatusQueryServiceTests {
                         : Optional.empty(),
                 includeMatcherWorker
                         ? Optional.of(matcherWorker)
+                        : Optional.empty(),
+                includeExecutorWorker
+                        ? Optional.of(executorWorker)
                         : Optional.empty()
         );
     }
@@ -335,7 +444,7 @@ class StatusQueryServiceTests {
                         Duration.ofSeconds(2),
                         Duration.ofSeconds(30)
                 ),
-                new DexProperties.Executor(null),
+                new DexProperties.Executor(null, Duration.ofSeconds(2)),
                 new DexProperties.Api(List.of(URI.create("http://localhost:5173")))
         );
     }

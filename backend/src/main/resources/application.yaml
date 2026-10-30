@@ -37,6 +37,7 @@ dex:
 
   executor:
     private-key: ${DEX_EXECUTOR_PRIVATE_KEY:}
+    poll-interval: ${DEX_EXECUTOR_POLL_INTERVAL:2s}
 
   api:
     cors-origins: ${DEX_CORS_ORIGINS:http://localhost:5173}

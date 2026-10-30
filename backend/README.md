@@ -29,7 +29,8 @@ Ethereum mode also requires `DEX_EXECUTOR_PRIVATE_KEY` when
 
 Match discovery excludes both orders referenced by unresolved execution
 attempts. The operational matcher can preflight and durably reserve one match,
-but settlement signing and submission are not implemented yet.
+and the settlement executor can durably sign that reservation. Broadcasting and
+receipt reconciliation are not implemented yet.
 
 ## Blockchain integration status
 
@@ -87,8 +88,26 @@ A valid proposal is rechecked against one serializable database snapshot before
 a `RESERVED` execution attempt is inserted. Only one unresolved attempt is
 allowed for the configured deployment. `RESERVED`, `SIGNED`, `SUBMITTED`, and
 `UNCERTAIN` attempts remain unresolved; the matcher performs no more proposal or
-RPC work while one exists. Step 6 will prepare, sign, broadcast, and reconcile
-the reserved settlement.
+RPC work while one exists.
+
+## Settlement signing
+
+When matching is enabled, the settlement executor polls with the fixed delay
+configured by `DEX_EXECUTOR_POLL_INTERVAL` (two seconds by default). It handles
+at most one unresolved execution attempt per invocation, and overlapping
+invocations are skipped.
+
+For a `RESERVED` attempt, transaction preparation and signing occur through the
+blockchain adapter outside a database transaction. The executor then records a
+short `RESERVED` to `SIGNED` lifecycle transition containing the executor nonce,
+transaction hash, and exact signed transaction payload. Persisting the payload
+allows a later process to recover the identical transaction after a restart;
+the database and its backups must therefore be treated as sensitive.
+
+An existing `SIGNED` attempt is reconstructed from its durable fields and is
+never signed again. `SUBMITTED` and `UNCERTAIN` attempts wait for later
+reconciliation. This checkpoint does not broadcast transactions: broadcasting,
+ambiguity handling, and receipt observation begin in Checkpoint 6C.
 
 The durable execution-attempt state machine and its crash-safety rules are
 documented in [Settlement lifecycle](docs/settlement-lifecycle.md). In
@@ -308,8 +327,9 @@ pending execution attempts are never returned as trades.
 GET /api/v1/status
 ```
 
-The status endpoint reports safe deployment identity, indexer progress, and
-matcher availability without making a blockchain RPC request. It returns
+The status endpoint reports safe deployment identity, indexer progress,
+matcher availability, and settlement-executor state without making a blockchain
+RPC request. It returns
 `200 OK` whenever the status document can be generated, including while the
 backend is starting, degraded, retrying, or paused. Use the Actuator health
 endpoint for infrastructure health probes rather than treating this operational
@@ -341,6 +361,10 @@ status as a liveness response.
   "matcher": {
     "enabled": false,
     "state": "DISABLED"
+  },
+  "executor": {
+    "enabled": false,
+    "state": "DISABLED"
   }
 }
 ```
@@ -351,6 +375,10 @@ Overall states are `HEALTHY`, `STARTING`, and `DEGRADED`. Indexer states are
 `IDLE`, `RUNNING`, `RESERVED`, `RETRYING`, and `HALTED`. Retryable matcher
 failures report `RETRYING`; non-retryable gateway or safety failures halt the
 worker until restart without exposing their raw details through the API.
+Executor states are `DISABLED`, `STARTING`, `IDLE`, `RUNNING`, `SIGNED`,
+`WAITING_FOR_RECONCILIATION`, `RETRYING`, and `HALTED`. Executor `RETRYING` and
+`HALTED` states make the overall status degraded, while raw signed transaction
+bytes and failure details are never returned.
 
 `indexingLagBlocks` counts only blocks currently eligible after confirmation
 depth: `max(latestObserved - confirmationDepth - lastIndexed, 0)`. Chain-sized

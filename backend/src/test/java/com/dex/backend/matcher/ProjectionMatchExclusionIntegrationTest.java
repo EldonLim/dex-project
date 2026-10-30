@@ -443,6 +443,12 @@ class ProjectionMatchExclusionIntegrationTest {
             BigInteger sellOrderId,
             ExecutionAttemptStatus status
     ) {
+        boolean hasTransactionIdentity = status != ExecutionAttemptStatus.RESERVED
+                && status != ExecutionAttemptStatus.ABANDONED;
+        Timestamp resolvedAt = status.isTerminal()
+                ? Timestamp.from(START)
+                : null;
+
         jdbcTemplate.update(
                 """
                 INSERT INTO execution_attempts (
@@ -453,10 +459,14 @@ class ProjectionMatchExclusionIntegrationTest {
                     sell_order_id,
                     fill_lots,
                     executor_address,
+                    executor_nonce,
+                    transaction_hash,
+                    signed_transaction_hex,
                     status,
                     created_at,
-                    updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    updated_at,
+                    resolved_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 UUID.randomUUID(),
                 deploymentId,
@@ -465,9 +475,15 @@ class ProjectionMatchExclusionIntegrationTest {
                 sellOrderId,
                 BigInteger.ONE,
                 address(999).value(),
+                hasTransactionIdentity ? buyOrderId : null,
+                hasTransactionIdentity
+                        ? hash(buyOrderId.add(sellOrderId)).value()
+                        : null,
+                hasTransactionIdentity ? "0x01" : null,
                 status.name(),
                 Timestamp.from(START),
-                Timestamp.from(START)
+                Timestamp.from(START),
+                resolvedAt
         );
     }
 
@@ -551,6 +567,10 @@ class ProjectionMatchExclusionIntegrationTest {
     }
 
     private static Hash256 hash(long value) {
+        return hash(BigInteger.valueOf(value));
+    }
+
+    private static Hash256 hash(BigInteger value) {
         return new Hash256("0x" + String.format("%064x", value));
     }
 

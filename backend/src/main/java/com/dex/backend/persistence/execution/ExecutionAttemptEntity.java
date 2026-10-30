@@ -52,6 +52,9 @@ public class ExecutionAttemptEntity {
     @Column(name = "transaction_hash", length = 66)
     private Hash256 transactionHash;
 
+    @Column(name = "signed_transaction_hex")
+    private String signedTransactionHex;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 20, nullable = false)
     private ExecutionAttemptStatus status;
@@ -136,6 +139,7 @@ public class ExecutionAttemptEntity {
 
         executorNonce = preparedSettlement.nonce();
         transactionHash = preparedSettlement.transactionHash();
+        signedTransactionHex = preparedSettlement.signedTransactionHex();
         status = ExecutionAttemptStatus.SIGNED;
         updatedAt = occurredAt;
         clearFailureDetails();
@@ -275,12 +279,36 @@ public class ExecutionAttemptEntity {
     }
 
     private void requireTransactionIdentity() {
-        if (executorNonce == null || transactionHash == null) {
+        if (executorNonce == null
+                || transactionHash == null
+                || signedTransactionHex == null) {
             throw new ExecutionAttemptTransitionException(
                     "Signed transaction identity is required for status "
                             + status
             );
         }
+    }
+
+    public PreparedSettlement toPreparedSettlement() {
+        requireTransactionIdentity();
+
+        return new PreparedSettlement(
+                toSettlementRequest(),
+                executorAddress,
+                executorNonce,
+                transactionHash,
+                signedTransactionHex
+        );
+    }
+
+    public SettlementRequest toSettlementRequest() {
+        return new SettlementRequest(
+                deploymentId,
+                marketId,
+                buyOrderId,
+                sellOrderId,
+                fillLots
+        );
     }
 
     private void clearFailureDetails() {

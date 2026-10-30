@@ -45,6 +45,10 @@ class ExecutionAttemptEntityTests {
                         attempt.getTransactionHash()
                 ),
                 () -> assertEquals(
+                        prepared,
+                        attempt.toPreparedSettlement()
+                ),
+                () -> assertEquals(
                         RESERVED_AT.plusSeconds(2),
                         attempt.getSubmittedAt()
                 ),

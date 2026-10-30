@@ -48,13 +48,13 @@ class DatabaseMigrationIntegrationTest {
     }
 
     @Test
-    void bothMigrationsWereSuccessful() {
+    void allMigrationsWereSuccessful() {
         Integer successfulMigrations = jdbcTemplate.queryForObject(
                 """
                 SELECT COUNT(*)
                 FROM flyway_schema_history
                 WHERE success = TRUE
-                  AND version IN ('1', '2')
+                  AND version IN ('1', '2', '3')
                 """,
                 Integer.class
         );
@@ -68,7 +68,40 @@ class DatabaseMigrationIntegrationTest {
                 Integer.class
         );
 
-        assertEquals(2, successfulMigrations);
+        assertEquals(3, successfulMigrations);
         assertEquals(0, failedMigrations);
+    }
+
+    @Test
+    void signedSettlementPayloadColumnAndConstraintsExist() {
+        Integer columnCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'execution_attempts'
+                  AND column_name = 'signed_transaction_hex'
+                  AND data_type = 'text'
+                """,
+                Integer.class
+        );
+
+        Integer constraintCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.table_constraints
+                WHERE table_schema = 'public'
+                  AND table_name = 'execution_attempts'
+                  AND constraint_name IN (
+                      'ck_execution_attempts_signed_transaction',
+                      'ck_execution_attempts_transaction_identity',
+                      'ck_execution_attempts_resolution_state'
+                  )
+                """,
+                Integer.class
+        );
+
+        assertEquals(1, columnCount);
+        assertEquals(3, constraintCount);
     }
 }

@@ -47,10 +47,12 @@ class BackendApplicationTests {
 		assertFalse(properties.indexer().enabled());
 		assertTrue(properties.matcher().pollInterval().equals(Duration.ofSeconds(2)));
 		assertTrue(properties.matcher().ineligibilityDuration().equals(Duration.ofSeconds(30)));
+		assertTrue(properties.executor().pollInterval().equals(Duration.ofSeconds(2)));
 		assertFalse(applicationContext.containsBean("indexerPollingWorker"));
 		assertTrue(applicationContext.getBeansOfType(IndexerPollingWorker.class).isEmpty());
 		assertFalse(applicationContext.containsBean("matcherPollingWorker"));
 		assertTrue(applicationContext.getBeansOfType(MatcherPollingWorker.class).isEmpty());
+		assertFalse(applicationContext.containsBean("settlementExecutorWorker"));
 	}
 
 }

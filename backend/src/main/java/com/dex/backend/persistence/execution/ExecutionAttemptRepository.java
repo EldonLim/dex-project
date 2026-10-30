@@ -18,6 +18,18 @@ public interface ExecutionAttemptRepository
     );
 
     @Query("""
+            SELECT a
+            FROM ExecutionAttemptEntity a
+            WHERE a.deploymentId = :deploymentId
+              AND a.status IN :statuses
+            ORDER BY a.createdAt ASC, a.attemptId ASC
+            """)
+    List<ExecutionAttemptEntity> findUnresolvedAttempts(
+            @Param("deploymentId") String deploymentId,
+            @Param("statuses") Collection<ExecutionAttemptStatus> statuses
+    );
+
+    @Query("""
             SELECT a.buyOrderId AS buyOrderId,
                    a.sellOrderId AS sellOrderId
             FROM ExecutionAttemptEntity a
