@@ -32,6 +32,7 @@ public record DexProperties(
             URI rpcUrl,
             BigInteger expectedChainId,
             String dexAddress,
+            String marketRegistryAddress,
             BigInteger deploymentBlock
     ) {
     }

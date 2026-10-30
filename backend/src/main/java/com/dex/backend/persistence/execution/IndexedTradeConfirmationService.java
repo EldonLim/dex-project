@@ -41,7 +41,8 @@ public class IndexedTradeConfirmationService {
             BigInteger marketId,
             BigInteger buyOrderId,
             BigInteger sellOrderId,
-            BigInteger fillLots
+            BigInteger fillLots,
+            BigInteger executionPriceQuoteAtomsPerLot
     ) {
         Objects.requireNonNull(deploymentId, "deploymentId must not be null");
         Objects.requireNonNull(
@@ -52,6 +53,10 @@ public class IndexedTradeConfirmationService {
         Objects.requireNonNull(buyOrderId, "buyOrderId must not be null");
         Objects.requireNonNull(sellOrderId, "sellOrderId must not be null");
         Objects.requireNonNull(fillLots, "fillLots must not be null");
+        Objects.requireNonNull(
+                executionPriceQuoteAtomsPerLot,
+                "executionPriceQuoteAtomsPerLot must not be null"
+        );
 
         var attempt = repository.findByTransactionHashForUpdate(
                 deploymentId,
@@ -67,7 +72,10 @@ public class IndexedTradeConfirmationService {
         if (!entity.getMarketId().equals(marketId)
                 || !entity.getBuyOrderId().equals(buyOrderId)
                 || !entity.getSellOrderId().equals(sellOrderId)
-                || !entity.getFillLots().equals(fillLots)) {
+                || !entity.getFillLots().equals(fillLots)
+                || !entity.getExecutionPriceQuoteAtomsPerLot().equals(
+                executionPriceQuoteAtomsPerLot
+        )) {
             throw new ExecutionAttemptTransitionException(
                     "Indexed trade does not match its execution attempt"
             );

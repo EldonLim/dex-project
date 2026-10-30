@@ -78,6 +78,7 @@ class StatusQueryServiceTests {
         assertEquals(DEPLOYMENT_ID, response.deployment().deploymentId());
         assertFalse(response.deployment().registered());
         assertNull(response.deployment().chainId());
+        assertNull(response.deployment().marketRegistryAddress());
         assertEquals(IndexerStatus.STARTING, response.indexer().state());
         assertNull(response.indexer().indexingLagBlocks());
         assertEquals(MatcherStatus.DISABLED, response.matcher().state());
@@ -431,6 +432,7 @@ class StatusQueryServiceTests {
                         null,
                         null,
                         null,
+                        null,
                         null
                 ),
                 new DexProperties.Indexer(
@@ -455,6 +457,7 @@ class StatusQueryServiceTests {
                 BlockchainMode.MOCK,
                 BigInteger.valueOf(31_337),
                 address(1),
+                address(2),
                 BigInteger.valueOf(90),
                 hash(90)
         );

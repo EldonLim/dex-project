@@ -26,3 +26,9 @@ temp/
 .cache/
 
 target/
+
+# Smart-contract build and dependency outputs
+smart-contracts/node_modules/
+smart-contracts/artifacts/
+smart-contracts/cache/
+smart-contracts/coverage/

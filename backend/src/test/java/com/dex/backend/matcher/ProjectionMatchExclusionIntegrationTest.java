@@ -458,6 +458,7 @@ class ProjectionMatchExclusionIntegrationTest {
                     buy_order_id,
                     sell_order_id,
                     fill_lots,
+                    execution_price_quote_atoms_per_lot,
                     executor_address,
                     executor_nonce,
                     transaction_hash,
@@ -466,7 +467,7 @@ class ProjectionMatchExclusionIntegrationTest {
                     created_at,
                     updated_at,
                     resolved_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 UUID.randomUUID(),
                 deploymentId,
@@ -474,6 +475,7 @@ class ProjectionMatchExclusionIntegrationTest {
                 buyOrderId,
                 sellOrderId,
                 BigInteger.ONE,
+                BigInteger.TEN,
                 address(999).value(),
                 hasTransactionIdentity ? buyOrderId : null,
                 hasTransactionIdentity
@@ -492,6 +494,7 @@ class ProjectionMatchExclusionIntegrationTest {
                 deploymentId,
                 BlockchainMode.MOCK,
                 BigInteger.valueOf(seed),
+                address(10_000 + seed),
                 address(10_000 + seed),
                 BigInteger.ZERO,
                 hash(20_000 + seed)

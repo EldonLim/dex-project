@@ -43,13 +43,15 @@ successful, and reverted transaction behavior.
 The ABI-independent Web3j foundation is implemented. It can validate the chain
 and deployment block, read blocks, query standard ERC-20 balances and
 allowances, read a pending executor nonce, broadcast an already signed payload,
-and observe transaction status. RPC values are mapped through the same strict
-address, hash, and `BigInteger` domain types used by mock mode.
+and observe transaction status. Deployment identity now records both the
+OrderBook address used for settlement and allowances and the separate
+MarketRegistry address used for market events. RPC values are mapped through
+the same strict address, hash, and `BigInteger` domain types used by mock mode.
 
 This foundation is intentionally not registered as a `BlockchainGateway`.
 Ethereum mode cannot yet index DEX events, read DEX market or order state, or
-encode and sign `executeMatch`; those operations require Member 2's finalized
-ABI and deployment artifacts. It never returns an empty event list as a
+encode and sign `executeTrade`; those operations still require the ABI-specific
+gateway implemented in Checkpoint 7B. It never returns an empty event list as a
 placeholder and never silently falls back to mock mode. Passing the RPC or mock
 tests therefore does not prove compatibility with the finalized contracts.
 
@@ -381,6 +383,7 @@ status as a liveness response.
     "registered": true,
     "chainId": "31337",
     "dexAddress": "0xdddddddddddddddddddddddddddddddddddddddd",
+    "marketRegistryAddress": "0xdddddddddddddddddddddddddddddddddddddddd",
     "deploymentBlockNumber": "100",
     "deploymentBlockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   },

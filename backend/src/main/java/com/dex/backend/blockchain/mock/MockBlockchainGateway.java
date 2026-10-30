@@ -82,6 +82,7 @@ public final class MockBlockchainGateway implements BlockchainGateway {
                 deploymentId,
                 MockBlockchainFixtures.CHAIN_ID,
                 MockBlockchainFixtures.DEX_ADDRESS,
+                MockBlockchainFixtures.DEX_ADDRESS,
                 MockBlockchainFixtures.DEPLOYMENT_BLOCK,
                 blocks.get(MockBlockchainFixtures.DEPLOYMENT_BLOCK).hash()
         );
@@ -297,21 +298,8 @@ public final class MockBlockchainGateway implements BlockchainGateway {
         OrderSnapshot buy = settlement.buy();
         OrderSnapshot sell = settlement.sell();
 
-        ChainPosition buyPosition = placementPosition(buy.orderId());
-        ChainPosition sellPosition = placementPosition(sell.orderId());
-
-        int ageComparison = buyPosition.compareTo(sellPosition);
-
-        if (ageComparison == 0) {
-            throw new BlockchainGatewayException(
-                    "Distinct orders cannot have the same placement position",
-                    false
-            );
-        }
-
-        BigInteger executionPrice = ageComparison < 0
-                ? buy.limitPriceQuoteAtomsPerLot()
-                : sell.limitPriceQuoteAtomsPerLot();
+        BigInteger executionPrice =
+                request.executionPriceQuoteAtomsPerLot();
 
         BigInteger fill = request.fillLots();
 
@@ -634,6 +622,15 @@ public final class MockBlockchainGateway implements BlockchainGateway {
             );
         }
 
+        if (request.executionPriceQuoteAtomsPerLot()
+                .compareTo(sell.limitPriceQuoteAtomsPerLot()) < 0
+                || request.executionPriceQuoteAtomsPerLot()
+                .compareTo(buy.limitPriceQuoteAtomsPerLot()) > 0) {
+            throw new IllegalArgumentException(
+                    "Execution price must satisfy both order limits"
+            );
+        }
+
         if (request.fillLots().compareTo(buy.remainingLots()) > 0
                 || request.fillLots().compareTo(sell.remainingLots()) > 0) {
             throw new IllegalArgumentException(
@@ -682,22 +679,6 @@ public final class MockBlockchainGateway implements BlockchainGateway {
         }
 
         return prepared;
-    }
-
-    private ChainPosition placementPosition(BigInteger orderId) {
-        for (DexEvent event : events) {
-            if (event instanceof OrderPlacedEvent placement
-                    && placement.orderId().equals(orderId)
-                    && placement.metadata().deploymentId()
-                            .equals(chainIdentity.deploymentId())) {
-                return placement.metadata().position();
-            }
-        }
-
-        throw new BlockchainGatewayException(
-                "Mock order has no placement event",
-                false
-        );
     }
 
     private BlockReference nextBlock() {

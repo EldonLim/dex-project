@@ -101,6 +101,7 @@ class SettlementExecutionIntegrationTest {
                 BlockchainMode.MOCK,
                 MockBlockchainFixtures.CHAIN_ID,
                 MockBlockchainFixtures.DEX_ADDRESS,
+                MockBlockchainFixtures.DEX_ADDRESS,
                 MockBlockchainFixtures.DEPLOYMENT_BLOCK,
                 MockBlockchainFixtures.BLOCK_100.hash()
         ));

@@ -143,6 +143,7 @@ class MatchPreflightServiceTests {
                 "wrong-deployment",
                 BigInteger.valueOf(31_337),
                 DEX,
+                DEX,
                 BigInteger.ZERO,
                 hash(1)
         ));
@@ -246,6 +247,7 @@ class MatchPreflightServiceTests {
         return new ChainIdentity(
                 DEPLOYMENT_ID,
                 BigInteger.valueOf(31_337),
+                DEX,
                 DEX,
                 BigInteger.ZERO,
                 hash(1)

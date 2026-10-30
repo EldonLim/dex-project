@@ -49,6 +49,10 @@ class ExecutionAttemptEntityTests {
                         attempt.toPreparedSettlement()
                 ),
                 () -> assertEquals(
+                        BigInteger.valueOf(100),
+                        attempt.getExecutionPriceQuoteAtomsPerLot()
+                ),
+                () -> assertEquals(
                         RESERVED_AT.plusSeconds(2),
                         attempt.getSubmittedAt()
                 ),
@@ -139,7 +143,8 @@ class ExecutionAttemptEntityTests {
                 BigInteger.ONE,
                 BigInteger.ONE,
                 BigInteger.valueOf(99),
-                BigInteger.valueOf(5)
+                BigInteger.valueOf(5),
+                BigInteger.valueOf(100)
         );
         PreparedSettlement wrong = new PreparedSettlement(
                 wrongRequest,
@@ -234,7 +239,8 @@ class ExecutionAttemptEntityTests {
                         proposal.marketId(),
                         proposal.buyOrderId(),
                         proposal.sellOrderId(),
-                        proposal.fillLots()
+                        proposal.fillLots(),
+                        proposal.executionPriceQuoteAtomsPerLot()
                 ),
                 EXECUTOR,
                 nonce,

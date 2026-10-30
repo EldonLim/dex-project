@@ -105,7 +105,8 @@ class ExecutionAttemptReadServiceTests {
                 proposal.marketId(),
                 proposal.buyOrderId(),
                 proposal.sellOrderId(),
-                proposal.fillLots()
+                proposal.fillLots(),
+                proposal.executionPriceQuoteAtomsPerLot()
         );
     }
 
@@ -124,6 +125,7 @@ class ExecutionAttemptReadServiceTests {
                 new DexProperties.Blockchain(
                         BlockchainMode.MOCK,
                         DEPLOYMENT_ID,
+                        null,
                         null,
                         null,
                         null,

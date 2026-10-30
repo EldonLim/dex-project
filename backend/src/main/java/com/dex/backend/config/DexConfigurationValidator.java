@@ -113,6 +113,21 @@ public class DexConfigurationValidator implements InitializingBean {
         );
 
         require(
+                StringUtils.hasText(blockchain.marketRegistryAddress())
+                        && ADDRESS.matcher(
+                        blockchain.marketRegistryAddress()
+                ).matches(),
+                "DEX_MARKET_REGISTRY_ADDRESS must be a normalized lowercase address"
+        );
+
+        require(
+                !blockchain.dexAddress().equals(
+                        blockchain.marketRegistryAddress()
+                ),
+                "DEX_CONTRACT_ADDRESS and DEX_MARKET_REGISTRY_ADDRESS must differ"
+        );
+
+        require(
                 blockchain.deploymentBlock() != null
                         && blockchain.deploymentBlock().signum() >= 0,
                 "DEX_DEPLOYMENT_BLOCK must be non-negative in Ethereum mode"

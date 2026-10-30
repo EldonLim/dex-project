@@ -5,6 +5,7 @@ public record DeploymentStatusResponse(
         boolean registered,
         String chainId,
         String dexAddress,
+        String marketRegistryAddress,
         String deploymentBlockNumber,
         String deploymentBlockHash
 ) {

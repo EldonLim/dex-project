@@ -18,6 +18,8 @@ class DexConfigurationValidatorTests {
     private static final BigInteger CHAIN_ID = BigInteger.valueOf(31_337);
     private static final String CONTRACT_ADDRESS =
             "0x1111111111111111111111111111111111111111";
+    private static final String MARKET_REGISTRY_ADDRESS =
+            "0x2222222222222222222222222222222222222222";
     private static final String PRIVATE_KEY = "1".repeat(64);
     private static final List<URI> CORS_ORIGINS =
             List.of(URI.create("http://localhost:5173"));
@@ -73,6 +75,28 @@ class DexConfigurationValidatorTests {
     @Test
     void ethereumMatchingWithoutPrivateKeyThrows() {
         DexProperties properties = ethereumProperties(true, null);
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new DexConfigurationValidator(properties).afterPropertiesSet()
+        );
+    }
+
+    @Test
+    void ethereumModeWithoutMarketRegistryAddressThrows() {
+        DexProperties properties = ethereumPropertiesWithMarketRegistry(null);
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new DexConfigurationValidator(properties).afterPropertiesSet()
+        );
+    }
+
+    @Test
+    void ethereumModeRequiresDistinctContractAddresses() {
+        DexProperties properties = ethereumPropertiesWithMarketRegistry(
+                CONTRACT_ADDRESS
+        );
 
         assertThrows(
                 IllegalStateException.class,
@@ -185,6 +209,29 @@ class DexConfigurationValidatorTests {
         );
     }
 
+    private static DexProperties ethereumPropertiesWithMarketRegistry(
+            String marketRegistryAddress
+    ) {
+        DexProperties baseline = ethereumProperties(false, null);
+        DexProperties.Blockchain blockchain = baseline.blockchain();
+
+        return new DexProperties(
+                new DexProperties.Blockchain(
+                        blockchain.mode(),
+                        blockchain.deploymentId(),
+                        blockchain.rpcUrl(),
+                        blockchain.expectedChainId(),
+                        blockchain.dexAddress(),
+                        marketRegistryAddress,
+                        blockchain.deploymentBlock()
+                ),
+                baseline.indexer(),
+                baseline.matcher(),
+                baseline.executor(),
+                baseline.api()
+        );
+    }
+
     private static DexProperties properties(
             BlockchainMode mode,
             URI rpcUrl,
@@ -203,6 +250,9 @@ class DexConfigurationValidatorTests {
                         rpcUrl,
                         expectedChainId,
                         dexAddress,
+                        mode == BlockchainMode.ETHEREUM
+                                ? MARKET_REGISTRY_ADDRESS
+                                : null,
                         deploymentBlock
                 ),
                 new DexProperties.Indexer(true, pollInterval, 0, 500),
@@ -299,6 +349,7 @@ class DexConfigurationValidatorTests {
                         null,
                         null,
                         null,
+                        null,
                         null
                 ),
                 new DexProperties.Indexer(true, Duration.ofSeconds(2), 0, 500),
@@ -319,6 +370,7 @@ class DexConfigurationValidatorTests {
                 new DexProperties.Blockchain(
                         BlockchainMode.MOCK,
                         "test-deployment",
+                        null,
                         null,
                         null,
                         null,
@@ -347,6 +399,7 @@ class DexConfigurationValidatorTests {
                 new DexProperties.Blockchain(
                         BlockchainMode.MOCK,
                         "test-deployment",
+                        null,
                         null,
                         null,
                         null,

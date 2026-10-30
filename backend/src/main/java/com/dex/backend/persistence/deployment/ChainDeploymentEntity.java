@@ -33,6 +33,9 @@ public class ChainDeploymentEntity {
     @Column(name = "dex_address", length = 42, nullable = false)
     private EthereumAddress dexAddress;
 
+    @Column(name = "market_registry_address", length = 42, nullable = false)
+    private EthereumAddress marketRegistryAddress;
+
     @Column(name = "deployment_block_number", precision = 78, scale = 0, nullable = false)
     private BigInteger deploymentBlockNumber;
 
@@ -50,6 +53,7 @@ public class ChainDeploymentEntity {
             BlockchainMode adapterMode,
             BigInteger chainId,
             EthereumAddress dexAddress,
+            EthereumAddress marketRegistryAddress,
             BigInteger deploymentBlockNumber,
             Hash256 deploymentBlockHash
     ) {
@@ -57,6 +61,10 @@ public class ChainDeploymentEntity {
         this.adapterMode = Objects.requireNonNull(adapterMode, "adapterMode must not be null");
         this.chainId = Objects.requireNonNull(chainId, "chainId must not be null");
         this.dexAddress = Objects.requireNonNull(dexAddress, "dexAddress must not be null");
+        this.marketRegistryAddress = Objects.requireNonNull(
+                marketRegistryAddress,
+                "marketRegistryAddress must not be null"
+        );
         this.deploymentBlockNumber = Objects.requireNonNull(
                 deploymentBlockNumber,
                 "deploymentBlockNumber must not be null"
@@ -88,6 +96,10 @@ public class ChainDeploymentEntity {
 
     public EthereumAddress getDexAddress() {
         return dexAddress;
+    }
+
+    public EthereumAddress getMarketRegistryAddress() {
+        return marketRegistryAddress;
     }
 
     public BigInteger getDeploymentBlockNumber() {

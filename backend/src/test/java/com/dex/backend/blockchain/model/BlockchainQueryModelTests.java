@@ -36,6 +36,7 @@ class BlockchainQueryModelTests {
                 DEPLOYMENT,
                 BigInteger.valueOf(31337),
                 BASE,
+                QUOTE,
                 TEN,
                 HASH
         );
@@ -57,7 +58,9 @@ class BlockchainQueryModelTests {
             assertAll(
                     () -> assertThrows(
                             IllegalArgumentException.class,
-                            () -> new ChainIdentity(id, ONE, BASE, ZERO, HASH)
+                            () -> new ChainIdentity(
+                                    id, ONE, BASE, QUOTE, ZERO, HASH
+                            )
                     ),
                     () -> assertThrows(
                             IllegalArgumentException.class,
@@ -82,7 +85,9 @@ class BlockchainQueryModelTests {
         assertAll(
                 () -> assertEquals(
                         id,
-                        new ChainIdentity(id, ZERO, BASE, ZERO, HASH)
+                        new ChainIdentity(
+                                id, ZERO, BASE, QUOTE, ZERO, HASH
+                        )
                                 .deploymentId()
                 ),
                 () -> assertEquals(
@@ -104,13 +109,13 @@ class BlockchainQueryModelTests {
                 () -> assertThrows(
                         IllegalArgumentException.class,
                         () -> new ChainIdentity(
-                                DEPLOYMENT, NEGATIVE, BASE, ZERO, HASH
+                                DEPLOYMENT, NEGATIVE, BASE, QUOTE, ZERO, HASH
                         )
                 ),
                 () -> assertThrows(
                         IllegalArgumentException.class,
                         () -> new ChainIdentity(
-                                DEPLOYMENT, ONE, BASE, NEGATIVE, HASH
+                                DEPLOYMENT, ONE, BASE, QUOTE, NEGATIVE, HASH
                         )
                 ),
                 () -> assertThrows(
@@ -125,30 +130,38 @@ class BlockchainQueryModelTests {
         assertAll(
                 () -> assertThrows(
                         NullPointerException.class,
-                        () -> new ChainIdentity(null, ONE, BASE, ZERO, HASH)
-                ),
-                () -> assertThrows(
-                        NullPointerException.class,
                         () -> new ChainIdentity(
-                                DEPLOYMENT, null, BASE, ZERO, HASH
+                                null, ONE, BASE, QUOTE, ZERO, HASH
                         )
                 ),
                 () -> assertThrows(
                         NullPointerException.class,
                         () -> new ChainIdentity(
-                                DEPLOYMENT, ONE, null, ZERO, HASH
+                                DEPLOYMENT, null, BASE, QUOTE, ZERO, HASH
                         )
                 ),
                 () -> assertThrows(
                         NullPointerException.class,
                         () -> new ChainIdentity(
-                                DEPLOYMENT, ONE, BASE, null, HASH
+                                DEPLOYMENT, ONE, null, QUOTE, ZERO, HASH
                         )
                 ),
                 () -> assertThrows(
                         NullPointerException.class,
                         () -> new ChainIdentity(
-                                DEPLOYMENT, ONE, BASE, ZERO, null
+                                DEPLOYMENT, ONE, BASE, null, ZERO, HASH
+                        )
+                ),
+                () -> assertThrows(
+                        NullPointerException.class,
+                        () -> new ChainIdentity(
+                                DEPLOYMENT, ONE, BASE, QUOTE, null, HASH
+                        )
+                ),
+                () -> assertThrows(
+                        NullPointerException.class,
+                        () -> new ChainIdentity(
+                                DEPLOYMENT, ONE, BASE, QUOTE, ZERO, null
                         )
                 )
         );
@@ -428,7 +441,7 @@ class BlockchainQueryModelTests {
         BigInteger next = huge.add(ONE);
 
         ChainIdentity identity = new ChainIdentity(
-                DEPLOYMENT, huge, BASE, next, HASH
+                DEPLOYMENT, huge, BASE, QUOTE, next, HASH
         );
         BlockReference block = new BlockReference(huge, HASH, TIME);
         BlockRange range = new BlockRange(ZERO, huge);

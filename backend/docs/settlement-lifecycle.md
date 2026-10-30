@@ -5,6 +5,11 @@ It is separate from the confirmed order and trade projections. The blockchain
 remains authoritative, and only indexed contract events may change those
 projections.
 
+Each attempt durably preserves the matcher's execution price in quote-token
+atoms per lot. This exact value is carried into `executeTrade`, survives
+restart recovery with the signed payload, and must match the indexed trade
+event before the attempt can be confirmed.
+
 ## State machine
 
 ```text
@@ -109,7 +114,7 @@ block; a missing or changed block is retried without releasing the reservation.
 
 `SUCCEEDED` remains unresolved until its matching `TradeExecutedEvent` is
 indexed. The indexer validates deployment, transaction hash, market, both order
-IDs, and fill quantity before marking the attempt `CONFIRMED`. An event without
+IDs, fill quantity, and execution price before marking the attempt `CONFIRMED`. An event without
 a local attempt is still projected normally. A local mismatch rolls back the
 batch and pauses indexing. If the checkpoint has already passed the successful
 receipt block without confirming the attempt, settlement execution halts rather

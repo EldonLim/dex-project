@@ -86,6 +86,7 @@ class PersistenceMappingIntegrationTest {
                 BlockchainMode.ETHEREUM,
                 BigInteger.valueOf(31_337),
                 dexAddress,
+                address("9".repeat(40)),
                 BigInteger.valueOf(100),
                 deploymentHash
         );
@@ -299,6 +300,7 @@ class PersistenceMappingIntegrationTest {
                 deploymentId,
                 BlockchainMode.MOCK,
                 chainId,
+                address(addressPrefix.repeat(20)),
                 address(addressPrefix.repeat(20)),
                 BigInteger.ZERO,
                 hash(hashCharacter)

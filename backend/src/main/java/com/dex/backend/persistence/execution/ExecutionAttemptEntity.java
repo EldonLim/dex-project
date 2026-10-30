@@ -43,6 +43,15 @@ public class ExecutionAttemptEntity {
     @Column(name = "fill_lots", precision = 78, scale = 0, nullable = false, updatable = false)
     private BigInteger fillLots;
 
+    @Column(
+            name = "execution_price_quote_atoms_per_lot",
+            precision = 78,
+            scale = 0,
+            nullable = false,
+            updatable = false
+    )
+    private BigInteger executionPriceQuoteAtomsPerLot;
+
     @Column(name = "executor_address", length = 42, nullable = false, updatable = false)
     private EthereumAddress executorAddress;
 
@@ -99,6 +108,8 @@ public class ExecutionAttemptEntity {
         this.buyOrderId = proposal.buyOrderId();
         this.sellOrderId = proposal.sellOrderId();
         this.fillLots = proposal.fillLots();
+        this.executionPriceQuoteAtomsPerLot =
+                proposal.executionPriceQuoteAtomsPerLot();
         this.executorAddress = Objects.requireNonNull(
                 executorAddress,
                 "executorAddress must not be null"
@@ -250,6 +261,9 @@ public class ExecutionAttemptEntity {
                 || !buyOrderId.equals(request.buyOrderId())
                 || !sellOrderId.equals(request.sellOrderId())
                 || !fillLots.equals(request.fillLots())
+                || !executionPriceQuoteAtomsPerLot.equals(
+                request.executionPriceQuoteAtomsPerLot()
+        )
                 || !executorAddress.equals(
                         preparedSettlement.executorAddress()
                 )) {
@@ -307,7 +321,8 @@ public class ExecutionAttemptEntity {
                 marketId,
                 buyOrderId,
                 sellOrderId,
-                fillLots
+                fillLots,
+                executionPriceQuoteAtomsPerLot
         );
     }
 
@@ -366,6 +381,10 @@ public class ExecutionAttemptEntity {
 
     public BigInteger getFillLots() {
         return fillLots;
+    }
+
+    public BigInteger getExecutionPriceQuoteAtomsPerLot() {
+        return executionPriceQuoteAtomsPerLot;
     }
 
     public EthereumAddress getExecutorAddress() {

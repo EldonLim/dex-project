@@ -7,6 +7,7 @@ import com.dex.backend.blockchain.event.OrderCancelledEvent;
 import com.dex.backend.blockchain.event.OrderPlacedEvent;
 import com.dex.backend.blockchain.event.TradeExecutedEvent;
 import com.dex.backend.blockchain.model.ChainPosition;
+import com.dex.backend.blockchain.model.EthereumAddress;
 import com.dex.backend.order.OrderSide;
 import com.dex.backend.order.OrderStatus;
 import com.dex.backend.persistence.deployment.ChainDeploymentEntity;
@@ -71,7 +72,7 @@ public class EventProjectionService {
         }
 
         ChainDeploymentEntity deployment = requireDeployment(metadata);
-        verifyEventBelongsToDeployment(metadata, deployment);
+        verifyEventBelongsToDeployment(event, deployment);
 
         switch (event) {
             case MarketRegisteredEvent marketRegistered -> applyMarketRegistered(marketRegistered);
@@ -214,7 +215,8 @@ public class EventProjectionService {
                     event.marketId(),
                     event.buyOrderId(),
                     event.sellOrderId(),
-                    event.fillLots()
+                    event.fillLots(),
+                    event.executionPriceQuoteAtomsPerLot()
             );
         } catch (ExecutionAttemptTransitionException
                  | IllegalArgumentException exception) {
@@ -245,10 +247,19 @@ public class EventProjectionService {
     }
 
     private void verifyEventBelongsToDeployment(
-            EventMetadata metadata,
+            DexEvent event,
             ChainDeploymentEntity deployment
     ) {
-        if (!deployment.getDexAddress().equals(metadata.contractAddress())) {
+        EventMetadata metadata = event.metadata();
+        EthereumAddress expectedContractAddress = switch (event) {
+            case MarketRegisteredEvent ignored ->
+                    deployment.getMarketRegistryAddress();
+            case OrderPlacedEvent ignored -> deployment.getDexAddress();
+            case OrderCancelledEvent ignored -> deployment.getDexAddress();
+            case TradeExecutedEvent ignored -> deployment.getDexAddress();
+        };
+
+        if (!expectedContractAddress.equals(metadata.contractAddress())) {
             throw new EventProjectionException(
                     "Event contract address does not match deployment " + metadata.deploymentId()
             );

@@ -201,6 +201,7 @@ class SettlementExecutorWorkerTests {
                         null,
                         null,
                         null,
+                        null,
                         null
                 ),
                 new DexProperties.Indexer(true, Duration.ofSeconds(2), 0, 500),

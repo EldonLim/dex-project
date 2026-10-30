@@ -107,6 +107,7 @@ class MatcherReadinessServiceTests {
                         null,
                         null,
                         null,
+                        null,
                         null
                 ),
                 new DexProperties.Indexer(

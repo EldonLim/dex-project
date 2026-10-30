@@ -39,7 +39,8 @@ class SettlementExecutionCoordinatorTests {
             BigInteger.ONE,
             BigInteger.TEN,
             BigInteger.valueOf(20),
-            BigInteger.valueOf(5)
+            BigInteger.valueOf(5),
+            BigInteger.valueOf(100)
     );
     private static final PreparedSettlement PREPARED = prepared(
             REQUEST,
@@ -398,7 +399,8 @@ class SettlementExecutionCoordinatorTests {
                 REQUEST.marketId(),
                 REQUEST.buyOrderId(),
                 BigInteger.valueOf(21),
-                REQUEST.fillLots()
+                REQUEST.fillLots(),
+                REQUEST.executionPriceQuoteAtomsPerLot()
         );
         when(gateway.prepareSettlement(REQUEST)).thenReturn(
                 prepared(wrongRequest, EXECUTOR)

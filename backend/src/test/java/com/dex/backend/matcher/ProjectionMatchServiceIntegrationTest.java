@@ -362,6 +362,7 @@ class ProjectionMatchServiceIntegrationTest {
                 BlockchainMode.MOCK,
                 BigInteger.valueOf(seed),
                 address(10_000 + seed),
+                address(10_000 + seed),
                 BigInteger.ZERO,
                 hash(20_000 + seed)
         ));

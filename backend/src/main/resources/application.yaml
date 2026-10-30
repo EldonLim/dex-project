@@ -22,6 +22,7 @@ dex:
     rpc-url: ${DEX_RPC_URL:}
     expected-chain-id: ${DEX_EXPECTED_CHAIN_ID:}
     dex-address: ${DEX_CONTRACT_ADDRESS:}
+    market-registry-address: ${DEX_MARKET_REGISTRY_ADDRESS:}
     deployment-block: ${DEX_DEPLOYMENT_BLOCK:}
 
   indexer:

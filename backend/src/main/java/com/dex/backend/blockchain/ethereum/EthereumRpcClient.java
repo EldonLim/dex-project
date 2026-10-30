@@ -62,6 +62,7 @@ public final class EthereumRpcClient {
     private final String deploymentId;
     private final BigInteger expectedChainId;
     private final EthereumAddress dexAddress;
+    private final EthereumAddress marketRegistryAddress;
     private final BigInteger deploymentBlockNumber;
     private final EthereumAddress executorAddress;
 
@@ -70,6 +71,7 @@ public final class EthereumRpcClient {
             String deploymentId,
             BigInteger expectedChainId,
             EthereumAddress dexAddress,
+            EthereumAddress marketRegistryAddress,
             BigInteger deploymentBlockNumber,
             EthereumAddress executorAddress
     ) {
@@ -82,6 +84,10 @@ public final class EthereumRpcClient {
         this.dexAddress = Objects.requireNonNull(
                 dexAddress,
                 "dexAddress must not be null"
+        );
+        this.marketRegistryAddress = Objects.requireNonNull(
+                marketRegistryAddress,
+                "marketRegistryAddress must not be null"
         );
         this.deploymentBlockNumber = requireNonNegative(
                 deploymentBlockNumber,
@@ -129,6 +135,7 @@ public final class EthereumRpcClient {
                 blockchain.deploymentId(),
                 blockchain.expectedChainId(),
                 new EthereumAddress(blockchain.dexAddress()),
+                new EthereumAddress(blockchain.marketRegistryAddress()),
                 blockchain.deploymentBlock(),
                 executor
         );
@@ -161,6 +168,7 @@ public final class EthereumRpcClient {
                 deploymentId,
                 actualChainId,
                 dexAddress,
+                marketRegistryAddress,
                 deploymentBlock.number(),
                 deploymentBlock.hash()
         );

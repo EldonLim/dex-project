@@ -203,11 +203,13 @@ public class StatusQueryService {
                 true,
                 value.getChainId().toString(),
                 value.getDexAddress().value(),
+                value.getMarketRegistryAddress().value(),
                 value.getDeploymentBlockNumber().toString(),
                 value.getDeploymentBlockHash().value()
         )).orElseGet(() -> new DeploymentStatusResponse(
                 deploymentId,
                 false,
+                null,
                 null,
                 null,
                 null,

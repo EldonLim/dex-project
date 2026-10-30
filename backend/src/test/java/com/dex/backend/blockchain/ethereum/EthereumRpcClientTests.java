@@ -51,6 +51,7 @@ class EthereumRpcClientTests {
     private static final BigInteger CHAIN_ID = BigInteger.valueOf(31337);
     private static final BigInteger DEPLOYMENT_BLOCK = BigInteger.valueOf(100);
     private static final EthereumAddress DEX = address("d");
+    private static final EthereumAddress MARKET_REGISTRY = address("c");
     private static final EthereumAddress TOKEN = address("a");
     private static final EthereumAddress OWNER = address("1");
     private static final EthereumAddress SPENDER = address("2");
@@ -79,6 +80,7 @@ class EthereumRpcClientTests {
                 DEPLOYMENT_ID,
                 CHAIN_ID,
                 DEX,
+                MARKET_REGISTRY,
                 DEPLOYMENT_BLOCK,
                 BLOCK_HASH
         ));
@@ -230,6 +232,7 @@ class EthereumRpcClientTests {
                 DEPLOYMENT_ID,
                 CHAIN_ID,
                 DEX,
+                MARKET_REGISTRY,
                 DEPLOYMENT_BLOCK,
                 null
         );
@@ -363,6 +366,7 @@ class EthereumRpcClientTests {
                 DEPLOYMENT_ID,
                 CHAIN_ID,
                 DEX,
+                MARKET_REGISTRY,
                 DEPLOYMENT_BLOCK,
                 EXECUTOR
         );
@@ -376,6 +380,7 @@ class EthereumRpcClientTests {
                         URI.create("http://localhost:8545"),
                         CHAIN_ID,
                         DEX.value(),
+                        MARKET_REGISTRY.value(),
                         DEPLOYMENT_BLOCK
                 ),
                 new DexProperties.Indexer(false, Duration.ofSeconds(2), 0, 500),

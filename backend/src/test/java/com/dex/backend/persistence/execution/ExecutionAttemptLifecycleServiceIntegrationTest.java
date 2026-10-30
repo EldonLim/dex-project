@@ -115,6 +115,10 @@ class ExecutionAttemptLifecycleServiceIntegrationTest {
                         prepared,
                         stored.toPreparedSettlement()
                 ),
+                () -> assertEquals(
+                        BigInteger.valueOf(100),
+                        stored.getExecutionPriceQuoteAtomsPerLot()
+                ),
                 () -> assertNotNull(stored.getSubmittedAt()),
                 () -> assertNotNull(stored.getResolvedAt()),
                 () -> assertNull(stored.getErrorCode()),
@@ -353,6 +357,7 @@ class ExecutionAttemptLifecycleServiceIntegrationTest {
                 BlockchainMode.MOCK,
                 BigInteger.valueOf(31_337),
                 address(500),
+                address(500),
                 BigInteger.ZERO,
                 hash(0)
         ));
@@ -426,7 +431,8 @@ class ExecutionAttemptLifecycleServiceIntegrationTest {
                         proposal.marketId(),
                         proposal.buyOrderId(),
                         proposal.sellOrderId(),
-                        proposal.fillLots()
+                        proposal.fillLots(),
+                        proposal.executionPriceQuoteAtomsPerLot()
                 ),
                 EXECUTOR,
                 nonce,

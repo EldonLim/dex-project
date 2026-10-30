@@ -746,27 +746,27 @@ class MockBlockchainGatewayTests {
         List<SettlementRequest> invalidRequests = List.of(
                 new SettlementRequest(
                         "wrong-deployment", ONE, BigInteger.TWO, ONE,
-                        BigInteger.valueOf(40)
+                        BigInteger.valueOf(40), BigInteger.TEN
                 ),
                 new SettlementRequest(
                         DEPLOYMENT, BigInteger.valueOf(999), BigInteger.TWO, ONE,
-                        BigInteger.valueOf(40)
+                        BigInteger.valueOf(40), BigInteger.TEN
                 ),
                 new SettlementRequest(
                         DEPLOYMENT, ONE, BigInteger.valueOf(999), ONE,
-                        BigInteger.valueOf(40)
+                        BigInteger.valueOf(40), BigInteger.TEN
                 ),
                 new SettlementRequest(
                         DEPLOYMENT, ONE, BigInteger.TWO, BigInteger.valueOf(999),
-                        BigInteger.valueOf(40)
+                        BigInteger.valueOf(40), BigInteger.TEN
                 ),
                 new SettlementRequest(
                         DEPLOYMENT, ONE, ONE, BigInteger.TWO,
-                        BigInteger.valueOf(40)
+                        BigInteger.valueOf(40), BigInteger.TEN
                 ),
                 new SettlementRequest(
                         DEPLOYMENT, ONE, BigInteger.TWO, ONE,
-                        BigInteger.valueOf(41)
+                        BigInteger.valueOf(41), BigInteger.TEN
                 )
         );
 
@@ -979,7 +979,8 @@ class MockBlockchainGatewayTests {
                 ONE,
                 BigInteger.TWO,
                 ONE,
-                BigInteger.valueOf(40)
+                BigInteger.valueOf(40),
+                BigInteger.TEN
         );
     }
 

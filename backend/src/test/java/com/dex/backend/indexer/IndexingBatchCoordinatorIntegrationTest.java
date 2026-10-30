@@ -139,6 +139,7 @@ class IndexingBatchCoordinatorIntegrationTest {
                 BlockchainMode.MOCK,
                 BigInteger.valueOf(70_000),
                 dexAddress,
+                dexAddress,
                 BigInteger.valueOf(100),
                 deploymentHash
         ));
