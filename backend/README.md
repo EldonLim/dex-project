@@ -2,6 +2,13 @@
 
 Spring Boot backend for the university decentralized-exchange project.
 
+> Integration note: this teammate-provided Spring application currently uses
+> its documented mock gateway. The runnable project adds
+> [`backend/live-matcher`](live-matcher/README.md), which connects to Member 2's
+> actual Hardhat deployment and provides the real automatic matcher used by the
+> frontend. Follow the root [`START_HERE.md`](../START_HERE.md) for the complete
+> live DEX flow.
+
 ## Prerequisites
 
 - Java 21

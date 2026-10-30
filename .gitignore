@@ -26,3 +26,14 @@ temp/
 .cache/
 
 target/
+node_modules/
+dist/
+artifacts/
+cache/
+coverage/
+*.tsbuildinfo
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo

@@ -1,0 +1,21 @@
+{
+  "name": "sc4053-dex-live-matcher",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc --noEmit",
+    "test": "tsx --test test/matching.test.ts",
+    "test:e2e": "tsx test/e2e.ts"
+  },
+  "dependencies": {
+    "ethers": "^6.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsx": "^4.20.6",
+    "typescript": "~6.0.3"
+  }
+}
