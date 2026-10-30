@@ -17,6 +17,7 @@ import com.dex.backend.blockchain.BlockchainGateway;
 import com.dex.backend.blockchain.mock.MockBlockchainGateway;
 import com.dex.backend.config.DexProperties;
 import com.dex.backend.indexer.IndexerPollingWorker;
+import com.dex.backend.matcher.MatcherPollingWorker;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -44,9 +45,12 @@ class BackendApplicationTests {
 	@Test
 	void disablesScheduledIndexingInTheTestProfile() {
 		assertFalse(properties.indexer().enabled());
+		assertTrue(properties.matcher().pollInterval().equals(Duration.ofSeconds(2)));
 		assertTrue(properties.matcher().ineligibilityDuration().equals(Duration.ofSeconds(30)));
 		assertFalse(applicationContext.containsBean("indexerPollingWorker"));
 		assertTrue(applicationContext.getBeansOfType(IndexerPollingWorker.class).isEmpty());
+		assertFalse(applicationContext.containsBean("matcherPollingWorker"));
+		assertTrue(applicationContext.getBeansOfType(MatcherPollingWorker.class).isEmpty());
 	}
 
 }

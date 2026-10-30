@@ -2,6 +2,7 @@ package com.dex.backend.persistence.execution;
 
 import com.dex.backend.blockchain.model.EthereumAddress;
 import com.dex.backend.blockchain.model.Hash256;
+import com.dex.backend.matcher.MatchProposal;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -11,6 +12,7 @@ import jakarta.persistence.Table;
 
 import java.math.BigInteger;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -71,6 +73,48 @@ public class ExecutionAttemptEntity {
     private String revertReason;
 
     protected ExecutionAttemptEntity() {
+    }
+
+    private ExecutionAttemptEntity(
+            UUID attemptId,
+            MatchProposal proposal,
+            EthereumAddress executorAddress,
+            Instant createdAt
+    ) {
+        this.attemptId = Objects.requireNonNull(
+                attemptId,
+                "attemptId must not be null"
+        );
+        Objects.requireNonNull(proposal, "proposal must not be null");
+        this.deploymentId = proposal.deploymentId();
+        this.marketId = proposal.marketId();
+        this.buyOrderId = proposal.buyOrderId();
+        this.sellOrderId = proposal.sellOrderId();
+        this.fillLots = proposal.fillLots();
+        this.executorAddress = Objects.requireNonNull(
+                executorAddress,
+                "executorAddress must not be null"
+        );
+        this.status = ExecutionAttemptStatus.RESERVED;
+        this.createdAt = Objects.requireNonNull(
+                createdAt,
+                "createdAt must not be null"
+        );
+        this.updatedAt = createdAt;
+    }
+
+    public static ExecutionAttemptEntity reserved(
+            UUID attemptId,
+            MatchProposal proposal,
+            EthereumAddress executorAddress,
+            Instant createdAt
+    ) {
+        return new ExecutionAttemptEntity(
+                attemptId,
+                proposal,
+                executorAddress,
+                createdAt
+        );
     }
 
     public UUID getAttemptId() {

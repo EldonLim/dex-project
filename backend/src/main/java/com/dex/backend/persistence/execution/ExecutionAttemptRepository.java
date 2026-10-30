@@ -22,4 +22,15 @@ public interface ExecutionAttemptRepository
             @Param("deploymentId") String deploymentId,
             @Param("statuses") Collection<ExecutionAttemptStatus> statuses
     );
+
+    @Query("""
+            SELECT CASE WHEN COUNT(a) > 0 THEN true ELSE false END
+            FROM ExecutionAttemptEntity a
+            WHERE a.deploymentId = :deploymentId
+              AND a.status IN :statuses
+            """)
+    boolean existsUnresolved(
+            @Param("deploymentId") String deploymentId,
+            @Param("statuses") Collection<ExecutionAttemptStatus> statuses
+    );
 }

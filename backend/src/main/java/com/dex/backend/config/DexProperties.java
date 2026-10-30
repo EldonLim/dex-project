@@ -55,6 +55,9 @@ public record DexProperties(
             @DefaultValue("false")
             boolean enabled,
 
+            @DefaultValue("2s")
+            @NotNull Duration pollInterval,
+
             @DefaultValue("30s")
             @NotNull Duration ineligibilityDuration
     ) {

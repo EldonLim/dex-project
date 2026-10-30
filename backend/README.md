@@ -28,10 +28,8 @@ Ethereum mode also requires `DEX_EXECUTOR_PRIVATE_KEY` when
 `DEX_MATCHER_ENABLED=true`. Never commit `.env` or real private keys.
 
 Match discovery excludes both orders referenced by unresolved execution
-attempts. A failed preflight can also temporarily exclude the specific affected
-order for `DEX_MATCHER_INELIGIBILITY_DURATION` (30 seconds by default). These
-cooldowns are advisory, remain in memory only, and reset on restart. Operational
-matching and settlement submission are not implemented yet.
+attempts. The operational matcher can preflight and durably reserve one match,
+but settlement signing and submission are not implemented yet.
 
 ## Blockchain integration status
 
@@ -62,6 +60,35 @@ it keeps the previous projection isolated and available for diagnosis.
 
 See [Indexer recovery](docs/indexer-recovery.md) for inspection, backup, resume,
 and deployment-scoped reindex procedures.
+
+## Matcher operation
+
+Matching is disabled by default. When `DEX_MATCHER_ENABLED=true`, the matcher
+runs with the fixed delay configured by `DEX_MATCHER_POLL_INTERVAL` (two seconds
+by default). It waits until the configured deployment is registered and the
+indexer has an unpaused, error-free checkpoint with no confirmation-eligible
+lag. Each invocation examines at most one proposal and overlapping invocations
+are skipped.
+
+Before reserving a proposal, the matcher reloads the market and both orders from
+the blockchain adapter. It then checks current balances and allowances using:
+
+```text
+seller base required = fillLots × baseLotSizeAtoms
+buyer quote required = fillLots × executionPriceQuoteAtomsPerLot
+```
+
+These checks reduce avoidable failures; the contract remains the security
+boundary. An order with stale state or insufficient funding is temporarily
+excluded for `DEX_MATCHER_INELIGIBILITY_DURATION` (30 seconds by default). The
+cooldown is advisory, remains in memory only, and resets on restart.
+
+A valid proposal is rechecked against one serializable database snapshot before
+a `RESERVED` execution attempt is inserted. Only one unresolved attempt is
+allowed for the configured deployment. `RESERVED`, `SIGNED`, `SUBMITTED`, and
+`UNCERTAIN` attempts remain unresolved; the matcher performs no more proposal or
+RPC work while one exists. Step 6 will prepare, sign, broadcast, and reconcile
+the reserved settlement.
 
 ## Read API
 
@@ -315,8 +342,10 @@ status as a liveness response.
 
 Overall states are `HEALTHY`, `STARTING`, and `DEGRADED`. Indexer states are
 `DISABLED`, `STARTING`, `RUNNING`, `SYNCING`, `UP_TO_DATE`, `RETRYING`, and
-`PAUSED`. Before Step 5 is implemented, enabling matching is reported honestly
-as `NOT_IMPLEMENTED` and makes the overall status degraded.
+`PAUSED`. Matcher states are `DISABLED`, `STARTING`, `WAITING_FOR_INDEXER`,
+`IDLE`, `RUNNING`, `RESERVED`, `RETRYING`, and `HALTED`. Retryable matcher
+failures report `RETRYING`; non-retryable gateway or safety failures halt the
+worker until restart without exposing their raw details through the API.
 
 `indexingLagBlocks` counts only blocks currently eligible after confirmation
 depth: `max(latestObserved - confirmationDepth - lastIndexed, 0)`. Chain-sized

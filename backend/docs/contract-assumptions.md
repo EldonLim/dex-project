@@ -173,7 +173,7 @@ through the indexer or domain code.
 - Execution price is provisionally the older order's limit price.
 - Only `OPEN` and `PARTIALLY_FILLED` orders with a positive remainder are
   eligible.
-- Orders reserved by unresolved settlement attempts will later be excluded.
+- Orders reserved by unresolved settlement attempts are excluded.
 - The provisional matcher will skip same-owner pairs to avoid self-trades.
 - The Solidity contract must still reject invalid quantities, incompatible
   orders, cancelled or filled orders, and unsafe transfers.

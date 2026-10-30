@@ -44,10 +44,16 @@ public class DexConfigurationValidator implements InitializingBean {
     }
 
     private void validateMatcher() {
-        Duration duration = properties.matcher().ineligibilityDuration();
+        Duration pollInterval = properties.matcher().pollInterval();
+        Duration ineligibilityDuration = properties.matcher().ineligibilityDuration();
 
         require(
-                !duration.isZero() && !duration.isNegative(),
+                !pollInterval.isZero() && !pollInterval.isNegative(),
+                "DEX_MATCHER_POLL_INTERVAL must be positive"
+        );
+        require(
+                !ineligibilityDuration.isZero()
+                        && !ineligibilityDuration.isNegative(),
                 "DEX_MATCHER_INELIGIBILITY_DURATION must be positive"
         );
     }

@@ -206,7 +206,11 @@ class DexConfigurationValidatorTests {
                         deploymentBlock
                 ),
                 new DexProperties.Indexer(true, pollInterval, 0, 500),
-                new DexProperties.Matcher(matcherEnabled, Duration.ofSeconds(30)),
+                new DexProperties.Matcher(
+                        matcherEnabled,
+                        Duration.ofSeconds(2),
+                        Duration.ofSeconds(30)
+                ),
                 new DexProperties.Executor(privateKey),
                 new DexProperties.Api(corsOrigins)
         );
@@ -234,6 +238,30 @@ class DexConfigurationValidatorTests {
         );
     }
 
+    @Test
+    void zeroMatcherPollIntervalThrows() {
+        DexProperties properties = propertiesWithMatcherPollInterval(
+                Duration.ZERO
+        );
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new DexConfigurationValidator(properties).afterPropertiesSet()
+        );
+    }
+
+    @Test
+    void negativeMatcherPollIntervalThrows() {
+        DexProperties properties = propertiesWithMatcherPollInterval(
+                Duration.ofSeconds(-1)
+        );
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new DexConfigurationValidator(properties).afterPropertiesSet()
+        );
+    }
+
     private static DexProperties propertiesWithMatcherDuration(
             Duration ineligibilityDuration
     ) {
@@ -247,7 +275,39 @@ class DexConfigurationValidatorTests {
                         null
                 ),
                 new DexProperties.Indexer(true, Duration.ofSeconds(2), 0, 500),
-                new DexProperties.Matcher(false, ineligibilityDuration),
+                new DexProperties.Matcher(
+                        false,
+                        Duration.ofSeconds(2),
+                        ineligibilityDuration
+                ),
+                new DexProperties.Executor(null),
+                new DexProperties.Api(CORS_ORIGINS)
+        );
+    }
+
+    private static DexProperties propertiesWithMatcherPollInterval(
+            Duration matcherPollInterval
+    ) {
+        return new DexProperties(
+                new DexProperties.Blockchain(
+                        BlockchainMode.MOCK,
+                        "test-deployment",
+                        null,
+                        null,
+                        null,
+                        null
+                ),
+                new DexProperties.Indexer(
+                        true,
+                        Duration.ofSeconds(2),
+                        0,
+                        500
+                ),
+                new DexProperties.Matcher(
+                        false,
+                        matcherPollInterval,
+                        Duration.ofSeconds(30)
+                ),
                 new DexProperties.Executor(null),
                 new DexProperties.Api(CORS_ORIGINS)
         );

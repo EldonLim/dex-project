@@ -62,6 +62,7 @@ class ProjectionMatchExclusionIntegrationTest {
     private static final Instant START = Instant.parse("2026-01-01T00:00:00Z");
 
     private final ProjectionMatchService matchService;
+    private final MatchReservationService reservationService;
     private final TemporaryOrderIneligibilityRegistry ineligibilityRegistry;
     private final MutableClock clock;
     private final ExecutionAttemptRepository executionAttemptRepository;
@@ -73,6 +74,7 @@ class ProjectionMatchExclusionIntegrationTest {
     @Autowired
     ProjectionMatchExclusionIntegrationTest(
             ProjectionMatchService matchService,
+            MatchReservationService reservationService,
             TemporaryOrderIneligibilityRegistry ineligibilityRegistry,
             MutableClock clock,
             ExecutionAttemptRepository executionAttemptRepository,
@@ -82,6 +84,7 @@ class ProjectionMatchExclusionIntegrationTest {
             JdbcTemplate jdbcTemplate
     ) {
         this.matchService = matchService;
+        this.reservationService = reservationService;
         this.ineligibilityRegistry = ineligibilityRegistry;
         this.clock = clock;
         this.executionAttemptRepository = executionAttemptRepository;
@@ -291,6 +294,122 @@ class ProjectionMatchExclusionIntegrationTest {
                         ).orElseThrow().getStatus()
                 )
         );
+    }
+
+    @Test
+    void validCurrentProposalCreatesOneDurableReservationWithoutChangingOrders() {
+        saveDeployment(DEPLOYMENT_ID, 1);
+        saveMarket(DEPLOYMENT_ID, BigInteger.ONE);
+        saveOpenOrder(DEPLOYMENT_ID, 1, 1, OrderSide.BUY, 1, 110, 10, 1);
+        saveOpenOrder(DEPLOYMENT_ID, 1, 2, OrderSide.SELL, 2, 90, 10, 2);
+        orderRepository.flush();
+        MatchProposal proposal = matchService.findNextProposal().orElseThrow();
+        EthereumAddress executor = address(999);
+        Instant before = Instant.now();
+
+        MatchReservationResult result = reservationService.reserveIfCurrent(
+                proposal,
+                executor
+        );
+
+        Instant after = Instant.now();
+        var attempt = executionAttemptRepository.findAll().getFirst();
+        assertAll(
+                () -> assertEquals(MatchReservationResult.RESERVED, result),
+                () -> assertEquals(1, executionAttemptRepository.count()),
+                () -> assertEquals(DEPLOYMENT_ID, attempt.getDeploymentId()),
+                () -> assertEquals(BigInteger.ONE, attempt.getMarketId()),
+                () -> assertEquals(BigInteger.ONE, attempt.getBuyOrderId()),
+                () -> assertEquals(BigInteger.TWO, attempt.getSellOrderId()),
+                () -> assertEquals(BigInteger.TEN, attempt.getFillLots()),
+                () -> assertEquals(executor, attempt.getExecutorAddress()),
+                () -> assertEquals(
+                        ExecutionAttemptStatus.RESERVED,
+                        attempt.getStatus()
+                ),
+                () -> assertTrue(attempt.getAttemptId() != null),
+                () -> assertTrue(!attempt.getCreatedAt().isBefore(before)),
+                () -> assertTrue(!attempt.getCreatedAt().isAfter(after)),
+                () -> assertEquals(attempt.getCreatedAt(), attempt.getUpdatedAt()),
+                () -> assertTrue(attempt.getExecutorNonce() == null),
+                () -> assertTrue(attempt.getTransactionHash() == null),
+                () -> assertEquals(
+                        OrderStatus.OPEN,
+                        orderRepository.findById(
+                                new OrderEntityId(DEPLOYMENT_ID, BigInteger.ONE)
+                        ).orElseThrow().getStatus()
+                ),
+                () -> assertEquals(
+                        BigInteger.TEN,
+                        orderRepository.findById(
+                                new OrderEntityId(DEPLOYMENT_ID, BigInteger.ONE)
+                        ).orElseThrow().getRemainingLots()
+                )
+        );
+    }
+
+    @Test
+    void existingUnresolvedAttemptBlocksAnotherReservation() {
+        saveDeployment(DEPLOYMENT_ID, 1);
+        saveMarket(DEPLOYMENT_ID, BigInteger.ONE);
+        saveOpenOrder(DEPLOYMENT_ID, 1, 1, OrderSide.BUY, 1, 110, 10, 1);
+        saveOpenOrder(DEPLOYMENT_ID, 1, 2, OrderSide.SELL, 2, 90, 10, 2);
+        orderRepository.flush();
+        MatchProposal proposal = matchService.findNextProposal().orElseThrow();
+        insertAttempt(
+                DEPLOYMENT_ID,
+                BigInteger.ONE,
+                1,
+                2,
+                ExecutionAttemptStatus.UNCERTAIN
+        );
+
+        assertEquals(
+                MatchReservationResult.ALREADY_RESERVED,
+                reservationService.reserveIfCurrent(proposal, address(999))
+        );
+        assertEquals(1, executionAttemptRepository.count());
+    }
+
+    @Test
+    void changedTopProposalPreventsStaleReservation() {
+        saveDeployment(DEPLOYMENT_ID, 1);
+        saveMarket(DEPLOYMENT_ID, BigInteger.ONE);
+        saveOpenOrder(DEPLOYMENT_ID, 1, 1, OrderSide.BUY, 1, 110, 10, 1);
+        saveOpenOrder(DEPLOYMENT_ID, 1, 2, OrderSide.SELL, 2, 90, 10, 2);
+        orderRepository.flush();
+        MatchProposal staleProposal = matchService.findNextProposal().orElseThrow();
+        saveOpenOrder(DEPLOYMENT_ID, 1, 3, OrderSide.BUY, 3, 120, 10, 3);
+        orderRepository.flush();
+
+        assertEquals(
+                MatchReservationResult.STALE,
+                reservationService.reserveIfCurrent(staleProposal, address(999))
+        );
+        assertEquals(0, executionAttemptRepository.count());
+    }
+
+    @Test
+    void resolvedAttemptDoesNotBlockNewReservation() {
+        saveDeployment(DEPLOYMENT_ID, 1);
+        saveMarket(DEPLOYMENT_ID, BigInteger.ONE);
+        saveOpenOrder(DEPLOYMENT_ID, 1, 1, OrderSide.BUY, 1, 110, 10, 1);
+        saveOpenOrder(DEPLOYMENT_ID, 1, 2, OrderSide.SELL, 2, 90, 10, 2);
+        orderRepository.flush();
+        MatchProposal proposal = matchService.findNextProposal().orElseThrow();
+        insertAttempt(
+                DEPLOYMENT_ID,
+                BigInteger.ONE,
+                1,
+                2,
+                ExecutionAttemptStatus.ABANDONED
+        );
+
+        assertEquals(
+                MatchReservationResult.RESERVED,
+                reservationService.reserveIfCurrent(proposal, address(999))
+        );
+        assertEquals(2, executionAttemptRepository.count());
     }
 
     private void clearData() {
