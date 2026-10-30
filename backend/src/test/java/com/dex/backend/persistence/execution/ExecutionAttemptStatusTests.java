@@ -37,6 +37,7 @@ class ExecutionAttemptStatusTests {
         assertTransitions(
                 ExecutionAttemptStatus.SIGNED,
                 ExecutionAttemptStatus.SUBMITTED,
+                ExecutionAttemptStatus.CONFIRMED,
                 ExecutionAttemptStatus.UNCERTAIN
         );
         assertTransitions(

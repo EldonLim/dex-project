@@ -90,7 +90,7 @@ public class ExecutionAttemptLifecycleService {
     private ExecutionAttemptEntity load(UUID attemptId) {
         Objects.requireNonNull(attemptId, "attemptId must not be null");
 
-        return repository.findByAttemptIdAndDeploymentId(
+        return repository.findForUpdate(
                 attemptId,
                 deploymentId
         ).orElseThrow(() -> new ExecutionAttemptTransitionException(

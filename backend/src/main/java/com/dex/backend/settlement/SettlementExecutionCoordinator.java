@@ -4,6 +4,7 @@ import com.dex.backend.blockchain.BlockchainGateway;
 import com.dex.backend.blockchain.BlockchainGatewayException;
 import com.dex.backend.blockchain.execution.PreparedSettlement;
 import com.dex.backend.blockchain.execution.TransactionObservation;
+import com.dex.backend.blockchain.model.BlockReference;
 import com.dex.backend.blockchain.model.Hash256;
 import com.dex.backend.persistence.execution.ExecutionAttemptLifecycleService;
 import com.dex.backend.persistence.execution.ExecutionAttemptReadService;
@@ -23,18 +24,25 @@ public class SettlementExecutionCoordinator {
             "BROADCAST_HASH_MISMATCH";
     static final String BROADCAST_HASH_MISMATCH_MESSAGE =
             "Settlement broadcast returned an unexpected transaction hash";
+    static final String SUBMITTED_NOT_FOUND_CODE =
+            "SUBMITTED_TRANSACTION_NOT_FOUND";
+    static final String SUBMITTED_NOT_FOUND_MESSAGE =
+            "Submitted settlement transaction is not currently visible";
 
     private final ExecutionAttemptReadService readService;
     private final ExecutionAttemptLifecycleService lifecycleService;
+    private final SettlementReceiptResolutionService receiptResolutionService;
     private final BlockchainGateway gateway;
 
     public SettlementExecutionCoordinator(
             ExecutionAttemptReadService readService,
             ExecutionAttemptLifecycleService lifecycleService,
+            SettlementReceiptResolutionService receiptResolutionService,
             BlockchainGateway gateway
     ) {
         this.readService = readService;
         this.lifecycleService = lifecycleService;
+        this.receiptResolutionService = receiptResolutionService;
         this.gateway = gateway;
     }
 
@@ -51,8 +59,7 @@ public class SettlementExecutionCoordinator {
         return switch (workItem.status()) {
             case RESERVED -> sign(workItem);
             case SIGNED -> broadcast(workItem);
-            case SUBMITTED ->
-                    SettlementExecutorCycleStatus.WAITING_FOR_RECONCILIATION;
+            case SUBMITTED -> reconcileSubmitted(workItem);
             case UNCERTAIN -> reconcileUncertain(workItem);
             case CONFIRMED, REVERTED, ABANDONED -> throw safetyFailure(
                     "Resolved execution attempt was returned as unresolved"
@@ -119,15 +126,7 @@ public class SettlementExecutionCoordinator {
         TransactionObservation observation = gateway.getTransaction(
                 prepared.transactionHash()
         );
-
-        if (observation == null
-                || !prepared.transactionHash().equals(
-                        observation.transactionHash()
-                )) {
-            throw safetyFailure(
-                    "Transaction lookup returned an invalid observation"
-            );
-        }
+        validateObservation(prepared, observation);
 
         return switch (observation.status()) {
             case NOT_FOUND -> broadcast(workItem);
@@ -137,6 +136,93 @@ public class SettlementExecutionCoordinator {
                         .WAITING_FOR_RECONCILIATION;
             }
         };
+    }
+
+    private SettlementExecutorCycleStatus reconcileSubmitted(
+            ExecutionAttemptWorkItem workItem
+    ) {
+        validateConfiguredExecutor(workItem);
+        PreparedSettlement prepared = workItem.preparedSettlement();
+        TransactionObservation observation = gateway.getTransaction(
+                prepared.transactionHash()
+        );
+        validateObservation(prepared, observation);
+
+        return switch (observation.status()) {
+            case NOT_FOUND -> {
+                lifecycleService.recordUncertain(
+                        workItem.attemptId(),
+                        SUBMITTED_NOT_FOUND_CODE,
+                        SUBMITTED_NOT_FOUND_MESSAGE
+                );
+                yield SettlementExecutorCycleStatus
+                        .WAITING_FOR_RECONCILIATION;
+            }
+            case PENDING -> SettlementExecutorCycleStatus
+                    .WAITING_FOR_RECONCILIATION;
+            case SUCCEEDED -> resolveMinedObservation(
+                    workItem,
+                    observation,
+                    false
+            );
+            case REVERTED -> resolveMinedObservation(
+                    workItem,
+                    observation,
+                    true
+            );
+        };
+    }
+
+    private SettlementExecutorCycleStatus resolveMinedObservation(
+            ExecutionAttemptWorkItem workItem,
+            TransactionObservation observation,
+            boolean reverted
+    ) {
+        verifyCanonicalReceiptBlock(observation);
+
+        SettlementReceiptResolution resolution = reverted
+                ? receiptResolutionService.reconcileReverted(
+                        workItem.attemptId(),
+                        observation.blockNumber(),
+                        observation.failureReason()
+                )
+                : receiptResolutionService.reconcileSucceeded(
+                        workItem.attemptId(),
+                        observation.blockNumber()
+                );
+
+        return resolution == SettlementReceiptResolution.RESOLVED
+                ? SettlementExecutorCycleStatus.IDLE
+                : SettlementExecutorCycleStatus.WAITING_FOR_RECONCILIATION;
+    }
+
+    private void verifyCanonicalReceiptBlock(
+            TransactionObservation observation
+    ) {
+        Optional<BlockReference> block = gateway.getBlock(
+                observation.blockNumber()
+        );
+
+        if (block.isEmpty()
+                || !block.orElseThrow().hash().equals(observation.blockHash())) {
+            throw new SettlementReceiptRetryException(
+                    "Mined settlement block is not currently canonical"
+            );
+        }
+    }
+
+    private void validateObservation(
+            PreparedSettlement prepared,
+            TransactionObservation observation
+    ) {
+        if (observation == null
+                || !prepared.transactionHash().equals(
+                        observation.transactionHash()
+                )) {
+            throw safetyFailure(
+                    "Transaction lookup returned an invalid observation"
+            );
+        }
     }
 
     private void recordBroadcastUncertain(

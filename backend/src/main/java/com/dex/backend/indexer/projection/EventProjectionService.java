@@ -14,6 +14,8 @@ import com.dex.backend.persistence.deployment.ChainDeploymentRepository;
 import com.dex.backend.persistence.event.ProcessedEventEntity;
 import com.dex.backend.persistence.event.ProcessedEventEntityId;
 import com.dex.backend.persistence.event.ProcessedEventRepository;
+import com.dex.backend.persistence.execution.ExecutionAttemptTransitionException;
+import com.dex.backend.persistence.execution.IndexedTradeConfirmationService;
 import com.dex.backend.persistence.market.MarketEntity;
 import com.dex.backend.persistence.market.MarketEntityId;
 import com.dex.backend.persistence.market.MarketRepository;
@@ -37,19 +39,22 @@ public class EventProjectionService {
     private final OrderRepository orderRepository;
     private final TradeRepository tradeRepository;
     private final ProcessedEventRepository processedEventRepository;
+    private final IndexedTradeConfirmationService tradeConfirmationService;
 
     public EventProjectionService(
             ChainDeploymentRepository deploymentRepository,
             MarketRepository marketRepository,
             OrderRepository orderRepository,
             TradeRepository tradeRepository,
-            ProcessedEventRepository processedEventRepository
+            ProcessedEventRepository processedEventRepository,
+            IndexedTradeConfirmationService tradeConfirmationService
     ) {
         this.deploymentRepository = deploymentRepository;
         this.marketRepository = marketRepository;
         this.orderRepository = orderRepository;
         this.tradeRepository = tradeRepository;
         this.processedEventRepository = processedEventRepository;
+        this.tradeConfirmationService = tradeConfirmationService;
     }
 
     @Transactional
@@ -201,6 +206,20 @@ public class EventProjectionService {
                 metadata.blockHash(),
                 metadata.blockTimestamp()
         ));
+
+        try {
+            tradeConfirmationService.confirmMatchingAttempt(
+                    deploymentId,
+                    metadata.transactionHash(),
+                    event.marketId(),
+                    event.buyOrderId(),
+                    event.sellOrderId(),
+                    event.fillLots()
+            );
+        } catch (ExecutionAttemptTransitionException
+                 | IllegalArgumentException exception) {
+            throw projectionFailure(event, exception.getMessage());
+        }
     }
 
     private void verifyTradeOrders(

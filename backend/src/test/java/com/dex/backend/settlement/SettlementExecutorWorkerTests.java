@@ -115,6 +115,20 @@ class SettlementExecutorWorkerTests {
     }
 
     @Test
+    void temporarilyNoncanonicalReceiptRetriesWithoutHalting() {
+        when(coordinator.runCycle()).thenThrow(
+                new SettlementReceiptRetryException(
+                        "Receipt block changed during a reorganization"
+                )
+        );
+        SettlementExecutorWorker worker = worker();
+
+        assertTrue(worker.pollOnce());
+        assertEquals(SettlementExecutorWorkerState.RETRYING, worker.getState());
+        assertFalse(worker.isHalted());
+    }
+
+    @Test
     void workerLogsOnlyFailureTypeAndNeverRawFailureDetails() {
         String sensitiveFailure =
                 "private-key=secret signed-transaction=0xdeadbeef";

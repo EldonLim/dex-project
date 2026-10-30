@@ -42,7 +42,9 @@ public enum ExecutionAttemptStatus {
 
         return switch (this) {
             case RESERVED -> target == SIGNED || target == ABANDONED;
-            case SIGNED -> target == SUBMITTED || target == UNCERTAIN;
+            case SIGNED -> target == SUBMITTED
+                    || target == CONFIRMED
+                    || target == UNCERTAIN;
             case SUBMITTED -> target == CONFIRMED
                     || target == REVERTED
                     || target == UNCERTAIN;

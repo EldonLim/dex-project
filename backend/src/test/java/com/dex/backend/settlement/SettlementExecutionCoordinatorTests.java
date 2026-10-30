@@ -5,6 +5,7 @@ import com.dex.backend.blockchain.BlockchainGatewayException;
 import com.dex.backend.blockchain.execution.PreparedSettlement;
 import com.dex.backend.blockchain.execution.SettlementRequest;
 import com.dex.backend.blockchain.execution.TransactionObservation;
+import com.dex.backend.blockchain.model.BlockReference;
 import com.dex.backend.blockchain.model.EthereumAddress;
 import com.dex.backend.blockchain.model.Hash256;
 import com.dex.backend.persistence.execution.ExecutionAttemptLifecycleService;
@@ -49,11 +50,14 @@ class SettlementExecutionCoordinatorTests {
             mock(ExecutionAttemptReadService.class);
     private final ExecutionAttemptLifecycleService lifecycleService =
             mock(ExecutionAttemptLifecycleService.class);
+    private final SettlementReceiptResolutionService receiptResolutionService =
+            mock(SettlementReceiptResolutionService.class);
     private final BlockchainGateway gateway = mock(BlockchainGateway.class);
     private final SettlementExecutionCoordinator coordinator =
             new SettlementExecutionCoordinator(
                     readService,
                     lifecycleService,
+                    receiptResolutionService,
                     gateway
             );
 
@@ -262,14 +266,114 @@ class SettlementExecutionCoordinatorTests {
     }
 
     @Test
-    void submittedAttemptWaitsWithoutGatewayOrLifecycleWork() {
+    void submittedPendingAttemptWaitsWithoutLifecycleMutation() {
         useWorkItem(ExecutionAttemptStatus.SUBMITTED);
+        when(gateway.getExecutorAddress()).thenReturn(EXECUTOR);
+        when(gateway.getTransaction(PREPARED.transactionHash())).thenReturn(
+                TransactionObservation.pending(PREPARED.transactionHash())
+        );
 
         assertEquals(
                 SettlementExecutorCycleStatus.WAITING_FOR_RECONCILIATION,
                 coordinator.runCycle()
         );
-        verifyNoInteractions(gateway, lifecycleService);
+        verifyNoInteractions(lifecycleService, receiptResolutionService);
+    }
+
+    @Test
+    void submittedNotFoundAttemptBecomesUncertainWithSanitizedDetails() {
+        useWorkItem(ExecutionAttemptStatus.SUBMITTED);
+        when(gateway.getExecutorAddress()).thenReturn(EXECUTOR);
+        when(gateway.getTransaction(PREPARED.transactionHash())).thenReturn(
+                TransactionObservation.notFound(PREPARED.transactionHash())
+        );
+
+        assertEquals(
+                SettlementExecutorCycleStatus.WAITING_FOR_RECONCILIATION,
+                coordinator.runCycle()
+        );
+        verify(lifecycleService).recordUncertain(
+                ATTEMPT_ID,
+                SettlementExecutionCoordinator.SUBMITTED_NOT_FOUND_CODE,
+                SettlementExecutionCoordinator.SUBMITTED_NOT_FOUND_MESSAGE
+        );
+        verifyNoInteractions(receiptResolutionService);
+    }
+
+    @Test
+    void submittedSuccessWaitsForIndexedTradeConfirmation() {
+        useWorkItem(ExecutionAttemptStatus.SUBMITTED);
+        BlockReference block = block(100);
+        when(gateway.getExecutorAddress()).thenReturn(EXECUTOR);
+        when(gateway.getTransaction(PREPARED.transactionHash())).thenReturn(
+                TransactionObservation.succeeded(
+                        PREPARED.transactionHash(),
+                        block.number(),
+                        block.hash()
+                )
+        );
+        when(gateway.getBlock(block.number())).thenReturn(Optional.of(block));
+        when(receiptResolutionService.reconcileSucceeded(
+                ATTEMPT_ID,
+                block.number()
+        )).thenReturn(SettlementReceiptResolution.WAITING);
+
+        assertEquals(
+                SettlementExecutorCycleStatus.WAITING_FOR_RECONCILIATION,
+                coordinator.runCycle()
+        );
+        verifyNoInteractions(lifecycleService);
+    }
+
+    @Test
+    void submittedRevertResolvesOnlyThroughReceiptService() {
+        useWorkItem(ExecutionAttemptStatus.SUBMITTED);
+        BlockReference block = block(101);
+        when(gateway.getExecutorAddress()).thenReturn(EXECUTOR);
+        when(gateway.getTransaction(PREPARED.transactionHash())).thenReturn(
+                TransactionObservation.reverted(
+                        PREPARED.transactionHash(),
+                        block.number(),
+                        block.hash(),
+                        "Contract rejected settlement"
+                )
+        );
+        when(gateway.getBlock(block.number())).thenReturn(Optional.of(block));
+        when(receiptResolutionService.reconcileReverted(
+                ATTEMPT_ID,
+                block.number(),
+                "Contract rejected settlement"
+        )).thenReturn(SettlementReceiptResolution.RESOLVED);
+
+        assertEquals(SettlementExecutorCycleStatus.IDLE, coordinator.runCycle());
+        verifyNoInteractions(lifecycleService);
+    }
+
+    @Test
+    void noncanonicalMinedObservationIsRetriedWithoutResolution() {
+        useWorkItem(ExecutionAttemptStatus.SUBMITTED);
+        BlockReference receiptBlock = block(102);
+        when(gateway.getExecutorAddress()).thenReturn(EXECUTOR);
+        when(gateway.getTransaction(PREPARED.transactionHash())).thenReturn(
+                TransactionObservation.succeeded(
+                        PREPARED.transactionHash(),
+                        receiptBlock.number(),
+                        receiptBlock.hash()
+                )
+        );
+        when(gateway.getBlock(receiptBlock.number())).thenReturn(Optional.of(
+                new BlockReference(
+                        receiptBlock.number(),
+                        hash(999),
+                        receiptBlock.timestamp()
+                )
+        ));
+
+        assertThrows(
+                SettlementReceiptRetryException.class,
+                coordinator::runCycle
+        );
+        verifyNoInteractions(lifecycleService, receiptResolutionService);
     }
 
     @Test
@@ -336,6 +440,15 @@ class SettlementExecutionCoordinatorTests {
 
     private static EthereumAddress address(long value) {
         return new EthereumAddress("0x" + String.format("%040x", value));
+    }
+
+    private static BlockReference block(long number) {
+        return new BlockReference(
+                BigInteger.valueOf(number),
+                hash(number),
+                java.time.Instant.parse("2026-01-01T00:00:00Z")
+                        .plusSeconds(number)
+        );
     }
 
     private static Hash256 hash(long value) {

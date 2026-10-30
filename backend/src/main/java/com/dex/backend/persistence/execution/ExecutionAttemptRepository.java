@@ -1,6 +1,9 @@
 package com.dex.backend.persistence.execution;
 
+import com.dex.backend.blockchain.model.Hash256;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -15,6 +18,30 @@ public interface ExecutionAttemptRepository
     Optional<ExecutionAttemptEntity> findByAttemptIdAndDeploymentId(
             UUID attemptId,
             String deploymentId
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT a
+            FROM ExecutionAttemptEntity a
+            WHERE a.attemptId = :attemptId
+              AND a.deploymentId = :deploymentId
+            """)
+    Optional<ExecutionAttemptEntity> findForUpdate(
+            @Param("attemptId") UUID attemptId,
+            @Param("deploymentId") String deploymentId
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT a
+            FROM ExecutionAttemptEntity a
+            WHERE a.deploymentId = :deploymentId
+              AND a.transactionHash = :transactionHash
+            """)
+    Optional<ExecutionAttemptEntity> findByTransactionHashForUpdate(
+            @Param("deploymentId") String deploymentId,
+            @Param("transactionHash") Hash256 transactionHash
     );
 
     @Query("""

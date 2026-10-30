@@ -29,9 +29,10 @@ Ethereum mode also requires `DEX_EXECUTOR_PRIVATE_KEY` when
 
 Match discovery excludes both orders referenced by unresolved execution
 attempts. The operational matcher can preflight and durably reserve one match,
-and the settlement executor can durably sign and broadcast that reservation.
-Terminal receipt handling and indexed-trade confirmation are not implemented
-yet.
+and the settlement executor can durably sign, broadcast, and reconcile that
+reservation. Successful settlements become confirmed only when the indexer
+atomically applies their trade events; confirmed reverts release their
+reservations without changing projected orders.
 
 ## Blockchain integration status
 
@@ -115,8 +116,26 @@ An `UNCERTAIN` attempt is reconciled using its known transaction hash. A visible
 pending, successful, or reverted transaction becomes `SUBMITTED`; a transaction
 that is not found is safely rebroadcast using the identical signed payload. No
 replacement transaction, nonce, signature, or execution attempt is created.
-`SUBMITTED` attempts wait for Checkpoint 6D to interpret mined receipts and for
-the indexer to confirm successful trade events.
+
+A `SUBMITTED` attempt is observed on every executor cycle. Pending transactions
+remain reserved. A temporarily missing transaction becomes `UNCERTAIN` so the
+same durable payload can be reconciled and, when safe, rebroadcast. Mined block
+identity is rechecked before a terminal outcome is accepted.
+
+A successful receipt does not release its reservation. The indexer correlates
+the transaction hash with the local attempt and, in the same database
+transaction, updates both order projections, inserts the trade, records the
+processed event, marks the attempt `CONFIRMED`, and advances the checkpoint. A
+conflicting event rolls back the entire batch and pauses indexing. If the
+checkpoint passes a successful receipt block without the expected trade event,
+the executor halts for operator investigation.
+
+A reverted receipt becomes terminal only after the indexer checkpoint has
+processed through its block, which applies the configured confirmation-depth
+policy. Both referenced orders then receive the existing in-memory cooldown
+before the attempt becomes `REVERTED`; projected orders and trades remain
+unchanged. The bounded revert reason is internal and is never included in the
+status API.
 
 The durable execution-attempt state machine and its crash-safety rules are
 documented in [Settlement lifecycle](docs/settlement-lifecycle.md). In

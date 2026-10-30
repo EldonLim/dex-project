@@ -11,6 +11,7 @@ projections.
 RESERVED ----> SIGNED ----> SUBMITTED ----> CONFIRMED
     |             |              |--------> REVERTED
     |             |              |
+    |             +----------------------> CONFIRMED
     |             +--------------+--------> UNCERTAIN
     |                                           |
     +----> ABANDONED                            +--> SUBMITTED
@@ -43,6 +44,9 @@ RESERVED ----> SIGNED ----> SUBMITTED ----> CONFIRMED
 - A successful receipt does not directly make an attempt `CONFIRMED`. The
   attempt remains unresolved until the indexer applies the corresponding trade
   event and marks it confirmed in the event-processing path.
+- `SIGNED` may transition directly to `CONFIRMED` only when a matching indexed
+  trade proves that broadcast succeeded before the `SUBMITTED` database update
+  could be persisted.
 - Reverted or abandoned attempts release their reservations but never mutate
   confirmed order quantities or statuses.
 - Lifecycle timestamps cannot move backward. Diagnostic codes and messages are
@@ -51,10 +55,17 @@ RESERVED ----> SIGNED ----> SUBMITTED ----> CONFIRMED
 
 ## Transaction boundaries
 
-Each lifecycle mutation runs in its own short, deployment-scoped database
-transaction. The service locates attempts using both the configured deployment
-ID and attempt UUID. Blockchain calls must happen before or after these methods;
-no RPC request belongs inside a lifecycle transaction.
+Ordinary executor lifecycle mutations run in their own short,
+deployment-scoped database transactions. The service locates attempts using
+both the configured deployment ID and attempt UUID. Blockchain calls must
+happen before or after these methods; no RPC request belongs inside a lifecycle
+transaction.
+
+Trade confirmation is intentionally different: it joins the indexing batch
+transaction. Order updates, trade insertion, attempt confirmation, the
+processed-event marker, and checkpoint advancement therefore commit or roll
+back together. Lifecycle and confirmation lookups lock the attempt row so the
+executor and indexer cannot overwrite each other's state.
 
 The application validates transitions before changing the managed entity. An
 invalid transition rolls back without losing an already recorded nonce,
@@ -88,9 +99,28 @@ never appear in logs, status responses, exception messages, or routine
 diagnostics. Raw gateway failure details must not be copied into logs, status
 responses, or stored attempt diagnostics.
 
-Checkpoint 6C stops at `SUBMITTED`. Checkpoint 6D will interpret mined success
-and revert observations and will preserve the rule that only the indexed trade
-event can confirm a successful attempt and release its reservation.
+## Receipt reconciliation and terminal outcomes
+
+A `SUBMITTED` attempt is looked up by its persisted transaction hash on each
+executor cycle. `PENDING` continues waiting. `NOT_FOUND` records sanitized
+uncertainty and returns to the identical-payload recovery path. Mined results
+are accepted only when the reported block hash still matches the canonical
+block; a missing or changed block is retried without releasing the reservation.
+
+`SUCCEEDED` remains unresolved until its matching `TradeExecutedEvent` is
+indexed. The indexer validates deployment, transaction hash, market, both order
+IDs, and fill quantity before marking the attempt `CONFIRMED`. An event without
+a local attempt is still projected normally. A local mismatch rolls back the
+batch and pauses indexing. If the checkpoint has already passed the successful
+receipt block without confirming the attempt, settlement execution halts rather
+than silently releasing or permanently ignoring the reservation.
+
+`REVERTED` becomes terminal only after the indexer checkpoint has processed
+through the receipt block. This reuses the configured confirmation-depth policy.
+Before the durable reservation is released, both referenced orders are added
+to the existing in-memory matcher cooldown to prevent an immediate retry loop.
+The bounded contract revert reason remains internal, and confirmed order and
+trade projections are not changed.
 
 No process may generate a replacement settlement or release an uncertain
 attempt merely because a timeout elapsed. Later receipt reconciliation must use
