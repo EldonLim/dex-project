@@ -207,7 +207,7 @@ class IndexerPollingWorkerTests {
                                 null
                         ),
                         new DexProperties.Indexer(true, Duration.ofSeconds(2), 0, 500),
-                        new DexProperties.Matcher(false),
+                        new DexProperties.Matcher(false, Duration.ofSeconds(30)),
                         new DexProperties.Executor(null),
                         new DexProperties.Api(List.of(URI.create("http://localhost:5173")))
                 )

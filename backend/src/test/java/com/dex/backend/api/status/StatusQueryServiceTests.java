@@ -204,7 +204,7 @@ class StatusQueryServiceTests {
                         confirmationDepth,
                         500
                 ),
-                new DexProperties.Matcher(matcherEnabled),
+                new DexProperties.Matcher(matcherEnabled, Duration.ofSeconds(30)),
                 new DexProperties.Executor(null),
                 new DexProperties.Api(List.of(URI.create("http://localhost:5173")))
         );

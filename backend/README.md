@@ -27,6 +27,12 @@ The example environment explicitly selects `MOCK` blockchain mode. To use
 Ethereum mode also requires `DEX_EXECUTOR_PRIVATE_KEY` when
 `DEX_MATCHER_ENABLED=true`. Never commit `.env` or real private keys.
 
+Match discovery excludes both orders referenced by unresolved execution
+attempts. A failed preflight can also temporarily exclude the specific affected
+order for `DEX_MATCHER_INELIGIBILITY_DURATION` (30 seconds by default). These
+cooldowns are advisory, remain in memory only, and reset on restart. Operational
+matching and settlement submission are not implemented yet.
+
 ## Blockchain integration status
 
 Mock mode is currently implemented. Its standard deterministic fixture contains

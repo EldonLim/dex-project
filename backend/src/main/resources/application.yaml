@@ -32,6 +32,7 @@ dex:
 
   matcher:
     enabled: ${DEX_MATCHER_ENABLED:false}
+    ineligibility-duration: ${DEX_MATCHER_INELIGIBILITY_DURATION:30s}
 
   executor:
     private-key: ${DEX_EXECUTOR_PRIVATE_KEY:}

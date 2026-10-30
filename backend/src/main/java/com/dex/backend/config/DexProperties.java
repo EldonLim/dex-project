@@ -53,7 +53,10 @@ public record DexProperties(
 
     public record Matcher(
             @DefaultValue("false")
-            boolean enabled
+            boolean enabled,
+
+            @DefaultValue("30s")
+            @NotNull Duration ineligibilityDuration
     ) {
     }
 

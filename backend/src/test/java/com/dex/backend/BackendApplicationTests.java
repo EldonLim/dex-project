@@ -1,5 +1,7 @@
 package com.dex.backend;
 
+import java.time.Duration;
+
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -42,6 +44,7 @@ class BackendApplicationTests {
 	@Test
 	void disablesScheduledIndexingInTheTestProfile() {
 		assertFalse(properties.indexer().enabled());
+		assertTrue(properties.matcher().ineligibilityDuration().equals(Duration.ofSeconds(30)));
 		assertFalse(applicationContext.containsBean("indexerPollingWorker"));
 		assertTrue(applicationContext.getBeansOfType(IndexerPollingWorker.class).isEmpty());
 	}

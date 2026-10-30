@@ -26,6 +26,7 @@ public class DexConfigurationValidator implements InitializingBean {
     @Override
     public void afterPropertiesSet() {
         validateIndexer();
+        validateMatcher();
         validateCors();
 
         if (properties.blockchain().mode() == BlockchainMode.ETHEREUM) {
@@ -39,6 +40,15 @@ public class DexConfigurationValidator implements InitializingBean {
         require(
                 !interval.isZero() && !interval.isNegative(),
                 "DEX_INDEXER_POLL_INTERVAL must be positive"
+        );
+    }
+
+    private void validateMatcher() {
+        Duration duration = properties.matcher().ineligibilityDuration();
+
+        require(
+                !duration.isZero() && !duration.isNegative(),
+                "DEX_MATCHER_INELIGIBILITY_DURATION must be positive"
         );
     }
 
