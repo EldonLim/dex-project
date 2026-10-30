@@ -69,6 +69,7 @@ checklist.
 
 - [Solidity integration reference](docs/contract-assumptions.md)
 - [Member 2 integration checklist](docs/member-2-integration-checklist.md)
+- [Local Ethereum acceptance](docs/ethereum-local-acceptance.md)
 
 ## Indexer operation and recovery
 

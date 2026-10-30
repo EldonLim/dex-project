@@ -32,3 +32,5 @@ smart-contracts/node_modules/
 smart-contracts/artifacts/
 smart-contracts/cache/
 smart-contracts/coverage/
+smart-contracts/deployments/localhost.json
+smart-contracts/deployments/localhost.env

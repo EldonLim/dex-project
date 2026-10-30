@@ -181,9 +181,10 @@ The backend now encodes and signs `executeTrade` and composes the ABI and RPC
 clients into a complete Ethereum `BlockchainGateway` when mode is explicitly
 `ETHEREUM`. Remaining integration work is operational:
 
-- Add stable deployment metadata generation and an end-to-end local-chain test.
-- Exercise indexing, matching, settlement, and restart recovery against the
-  checked-in contracts as one acceptance flow.
+- Keep the generated deployment-metadata schema aligned if contract identity
+  requirements change.
+- Continue exercising indexing, matching, settlement, and restart recovery
+  against the checked-in contracts as one acceptance flow.
 - Keep mock and Ethereum gateway contract tests aligned as the contracts evolve.
 
 Do not edit historical Flyway migrations. Persisted model changes require a new
