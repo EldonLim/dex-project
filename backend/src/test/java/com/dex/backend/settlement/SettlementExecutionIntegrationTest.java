@@ -38,12 +38,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
-class SettlementSigningIntegrationTest {
+class SettlementExecutionIntegrationTest {
 
     private static final String DEPLOYMENT_ID = "integration-test";
 
     @Autowired
-    private SettlementSigningCoordinator coordinator;
+    private SettlementExecutionCoordinator coordinator;
 
     @Autowired
     private BlockchainGateway gateway;
@@ -118,7 +118,9 @@ class SettlementSigningIntegrationTest {
     }
 
     @Test
-    void oneCycleDurablySignsWithoutBroadcastOrProjectionChanges() {
+    void separateCyclesSignThenSubmitWithoutChangingProjections() {
+        BigInteger nonceBefore = gateway.getPendingExecutorNonce();
+
         assertEquals(
                 SettlementExecutorCycleStatus.SIGNED,
                 coordinator.runCycle()
@@ -159,10 +161,87 @@ class SettlementSigningIntegrationTest {
         );
 
         assertEquals(
+                SettlementExecutorCycleStatus.WAITING_FOR_RECONCILIATION,
+                coordinator.runCycle()
+        );
+
+        ExecutionAttemptEntity submitted = attemptRepository.findAll()
+                .getFirst();
+        BigInteger nonceAfterSubmission = gateway.getPendingExecutorNonce();
+
+        assertAll(
+                () -> assertEquals(
+                        ExecutionAttemptStatus.SUBMITTED,
+                        submitted.getStatus()
+                ),
+                () -> assertNotNull(submitted.getSubmittedAt()),
+                () -> assertEquals(
+                        TransactionStatus.PENDING,
+                        gateway.getTransaction(
+                                submitted.getTransactionHash()
+                        ).status()
+                ),
+                () -> assertEquals(
+                        nonceBefore.add(BigInteger.ONE),
+                        nonceAfterSubmission
+                ),
+                () -> assertEquals(2, orderRepository.count()),
+                () -> assertEquals(0, tradeRepository.count())
+        );
+
+        assertEquals(
+                SettlementExecutorCycleStatus.WAITING_FOR_RECONCILIATION,
+                coordinator.runCycle()
+        );
+        assertEquals(nonceAfterSubmission, gateway.getPendingExecutorNonce());
+    }
+
+    @Test
+    void acceptedBroadcastRecoversWhenDatabaseStillSaysSigned() {
+        assertEquals(
                 SettlementExecutorCycleStatus.SIGNED,
                 coordinator.runCycle()
         );
-        assertEquals(BigInteger.ZERO, gateway.getPendingExecutorNonce());
+        ExecutionAttemptEntity signed = attemptRepository.findAll().getFirst();
+        var prepared = signed.toPreparedSettlement();
+
+        assertEquals(
+                prepared.transactionHash(),
+                gateway.broadcastSettlement(prepared)
+        );
+        BigInteger nonceAfterAcceptedBroadcast =
+                gateway.getPendingExecutorNonce();
+        assertEquals(
+                ExecutionAttemptStatus.SIGNED,
+                attemptRepository.findById(signed.getAttemptId())
+                        .orElseThrow()
+                        .getStatus()
+        );
+
+        assertEquals(
+                SettlementExecutorCycleStatus.WAITING_FOR_RECONCILIATION,
+                coordinator.runCycle()
+        );
+
+        ExecutionAttemptEntity recovered = attemptRepository
+                .findById(signed.getAttemptId())
+                .orElseThrow();
+        assertAll(
+                () -> assertEquals(
+                        ExecutionAttemptStatus.SUBMITTED,
+                        recovered.getStatus()
+                ),
+                () -> assertEquals(
+                        prepared,
+                        recovered.toPreparedSettlement()
+                ),
+                () -> assertEquals(
+                        nonceAfterAcceptedBroadcast,
+                        gateway.getPendingExecutorNonce()
+                ),
+                () -> assertEquals(2, orderRepository.count()),
+                () -> assertEquals(0, tradeRepository.count())
+        );
     }
 
     private static OrderEntity toEntity(Order order) {

@@ -24,7 +24,7 @@ public class SettlementExecutorWorker {
     private static final Logger log =
             LoggerFactory.getLogger(SettlementExecutorWorker.class);
 
-    private final SettlementSigningCoordinator coordinator;
+    private final SettlementExecutionCoordinator coordinator;
     private final String deploymentId;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean halted = new AtomicBoolean(false);
@@ -32,7 +32,7 @@ public class SettlementExecutorWorker {
             new AtomicReference<>(SettlementExecutorWorkerState.STARTING);
 
     public SettlementExecutorWorker(
-            SettlementSigningCoordinator coordinator,
+            SettlementExecutionCoordinator coordinator,
             DexProperties properties
     ) {
         this.coordinator = coordinator;
@@ -114,7 +114,7 @@ public class SettlementExecutorWorker {
     private void retry(RuntimeException failure) {
         state.set(SettlementExecutorWorkerState.RETRYING);
         log.warn(
-                "Settlement signing will retry for deployment {} after {}",
+                "Settlement execution will retry for deployment {} after {}",
                 deploymentId,
                 failure.getClass().getSimpleName()
         );
@@ -124,7 +124,7 @@ public class SettlementExecutorWorker {
         halted.set(true);
         state.set(SettlementExecutorWorkerState.HALTED);
         log.error(
-                "Settlement signing halted for deployment {} after {}",
+                "Settlement execution halted for deployment {} after {}",
                 deploymentId,
                 failure.getClass().getSimpleName()
         );

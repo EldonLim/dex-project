@@ -1,10 +1,14 @@
 package com.dex.backend.settlement;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.dex.backend.blockchain.BlockchainGatewayException;
 import com.dex.backend.config.BlockchainMode;
 import com.dex.backend.config.DexProperties;
 import com.dex.backend.persistence.execution.ExecutionAttemptTransitionException;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 
 import java.net.URI;
@@ -26,8 +30,8 @@ import static org.mockito.Mockito.when;
 
 class SettlementExecutorWorkerTests {
 
-    private final SettlementSigningCoordinator coordinator =
-            mock(SettlementSigningCoordinator.class);
+    private final SettlementExecutionCoordinator coordinator =
+            mock(SettlementExecutionCoordinator.class);
 
     @Test
     void schedulingUsesTheConfiguredFixedDelay() throws Exception {
@@ -108,6 +112,35 @@ class SettlementExecutorWorkerTests {
         assertFalse(worker.isHalted());
         assertTrue(worker.pollOnce());
         assertEquals(SettlementExecutorWorkerState.SIGNED, worker.getState());
+    }
+
+    @Test
+    void workerLogsOnlyFailureTypeAndNeverRawFailureDetails() {
+        String sensitiveFailure =
+                "private-key=secret signed-transaction=0xdeadbeef";
+        when(coordinator.runCycle()).thenThrow(
+                new BlockchainGatewayException(sensitiveFailure, true)
+        );
+        Logger logger = (Logger) LoggerFactory.getLogger(
+                SettlementExecutorWorker.class
+        );
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            assertTrue(worker().pollOnce());
+
+            String messages = appender.list.stream()
+                    .map(ILoggingEvent::getFormattedMessage)
+                    .reduce("", (left, right) -> left + right);
+            assertFalse(messages.contains(sensitiveFailure));
+            assertFalse(messages.contains("0xdeadbeef"));
+            assertTrue(messages.contains("BlockchainGatewayException"));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test

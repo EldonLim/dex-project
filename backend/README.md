@@ -29,8 +29,9 @@ Ethereum mode also requires `DEX_EXECUTOR_PRIVATE_KEY` when
 
 Match discovery excludes both orders referenced by unresolved execution
 attempts. The operational matcher can preflight and durably reserve one match,
-and the settlement executor can durably sign that reservation. Broadcasting and
-receipt reconciliation are not implemented yet.
+and the settlement executor can durably sign and broadcast that reservation.
+Terminal receipt handling and indexed-trade confirmation are not implemented
+yet.
 
 ## Blockchain integration status
 
@@ -90,7 +91,7 @@ allowed for the configured deployment. `RESERVED`, `SIGNED`, `SUBMITTED`, and
 `UNCERTAIN` attempts remain unresolved; the matcher performs no more proposal or
 RPC work while one exists.
 
-## Settlement signing
+## Settlement execution
 
 When matching is enabled, the settlement executor polls with the fixed delay
 configured by `DEX_EXECUTOR_POLL_INTERVAL` (two seconds by default). It handles
@@ -105,9 +106,17 @@ allows a later process to recover the identical transaction after a restart;
 the database and its backups must therefore be treated as sensitive.
 
 An existing `SIGNED` attempt is reconstructed from its durable fields and is
-never signed again. `SUBMITTED` and `UNCERTAIN` attempts wait for later
-reconciliation. This checkpoint does not broadcast transactions: broadcasting,
-ambiguity handling, and receipt observation begin in Checkpoint 6C.
+never signed again. The executor broadcasts that exact payload and records the
+attempt as `SUBMITTED` only when the gateway returns the persisted transaction
+hash. If the broadcast outcome is unclear, the attempt becomes `UNCERTAIN` and
+continues reserving both orders.
+
+An `UNCERTAIN` attempt is reconciled using its known transaction hash. A visible
+pending, successful, or reverted transaction becomes `SUBMITTED`; a transaction
+that is not found is safely rebroadcast using the identical signed payload. No
+replacement transaction, nonce, signature, or execution attempt is created.
+`SUBMITTED` attempts wait for Checkpoint 6D to interpret mined receipts and for
+the indexer to confirm successful trade events.
 
 The durable execution-attempt state machine and its crash-safety rules are
 documented in [Settlement lifecycle](docs/settlement-lifecycle.md). In

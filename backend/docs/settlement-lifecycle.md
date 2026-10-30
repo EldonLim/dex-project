@@ -60,7 +60,7 @@ The application validates transitions before changing the managed entity. An
 invalid transition rolls back without losing an already recorded nonce,
 transaction hash, or signed payload.
 
-## Signing schedule and crash recovery
+## Signing, broadcasting, and crash recovery
 
 When matching is enabled, the settlement executor polls at the configured
 `DEX_EXECUTOR_POLL_INTERVAL`, processes at most one unresolved attempt, and
@@ -69,15 +69,28 @@ happens outside any database transaction. A short lifecycle transaction then
 stores the exact signed bytes together with the nonce and transaction hash.
 
 After a restart, a `SIGNED` attempt is reconstructed from those durable fields
-and is not prepared or signed again. `SUBMITTED` and `UNCERTAIN` attempts are
-also left untouched for later reconciliation. Because signed transaction bytes
-authorize a blockchain action, PostgreSQL access and database backups are
-operationally sensitive. Signed bytes must never appear in logs, status
-responses, exception messages, or routine diagnostics.
+and is not prepared or signed again. The executor submits the exact persisted
+payload outside a database transaction, verifies that the gateway returns the
+same transaction hash, and then records `SUBMITTED` in a short lifecycle
+transaction.
 
-Checkpoint 6B deliberately stops at `SIGNED` and never broadcasts. Checkpoint
-6C will broadcast the already-persisted payload and handle ambiguous submission
-outcomes without generating a replacement transaction.
+If broadcasting succeeds but the database transition fails, the attempt remains
+`SIGNED`. The next cycle safely rebroadcasts the identical transaction. A
+broadcast exception instead records `UNCERTAIN` with sanitized internal
+diagnostics. The executor looks up that known hash before further action: a
+visible pending, successful, or reverted transaction becomes `SUBMITTED`, while
+`NOT_FOUND` causes an idempotent rebroadcast of the same payload. It never signs
+a replacement or selects a new nonce.
+
+Because signed transaction bytes authorize a blockchain action, PostgreSQL
+access and database backups are operationally sensitive. Signed bytes must
+never appear in logs, status responses, exception messages, or routine
+diagnostics. Raw gateway failure details must not be copied into logs, status
+responses, or stored attempt diagnostics.
+
+Checkpoint 6C stops at `SUBMITTED`. Checkpoint 6D will interpret mined success
+and revert observations and will preserve the rule that only the indexed trade
+event can confirm a successful attempt and release its reservation.
 
 No process may generate a replacement settlement or release an uncertain
 attempt merely because a timeout elapsed. Later receipt reconciliation must use
