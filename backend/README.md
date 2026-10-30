@@ -215,6 +215,55 @@ by the configured confirmation depth and polling delay. They do not submit,
 cancel, or authenticate orders; user transactions remain the frontend and
 MetaMask's responsibility.
 
+### List recent trades
+
+```http
+GET /api/v1/markets/{marketId}/trades?limit=50
+```
+
+Trades are scoped to the configured deployment and market and sorted newest
+first by block number, transaction index, and log index. Historical trades
+remain available when an existing market becomes inactive.
+
+```json
+{
+  "items": [
+    {
+      "tradeId": null,
+      "marketId": "1",
+      "buyOrderId": "10",
+      "sellOrderId": "11",
+      "fillLots": "40",
+      "executionPriceQuoteAtomsPerLot": "2500000",
+      "buyOrderRemainingLots": "0",
+      "sellOrderRemainingLots": "60",
+      "executionPosition": {
+        "blockNumber": "20",
+        "transactionIndex": "1",
+        "logIndex": "3"
+      },
+      "transactionHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "blockTimestamp": "2026-01-01T12:00:00Z"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+`fillLots` is expressed in lots and `executionPriceQuoteAtomsPerLot` in quote
+token atoms per lot. Both remaining quantities are the confirmed order state
+immediately after the fill. All blockchain-sized integers are decimal strings.
+
+The provisional contract interface allows `tradeId` to be absent, so this
+field is `null` when the event does not provide one. The transaction hash and
+log index always identify the indexed trade event.
+
+The default page limit is 50 and the maximum is 200. When `nextCursor` is not
+`null`, pass it unchanged through the next request's `cursor` parameter. Trade
+cursors are opaque and must not be decoded or constructed by clients. As with
+other read endpoints, these are confirmed projections and can lag the chain;
+pending execution attempts are never returned as trades.
+
 Browser access to `/api/v1/**` is restricted to the origins configured by
 `DEX_CORS_ORIGINS`. Only read requests are supported. API errors use the
 standard `application/problem+json` media type and never include stack traces or
