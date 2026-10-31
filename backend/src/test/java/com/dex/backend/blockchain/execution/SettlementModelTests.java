@@ -35,7 +35,8 @@ class SettlementModelTests {
                 () -> assertEquals(ONE, request.marketId()),
                 () -> assertEquals(ONE, request.buyOrderId()),
                 () -> assertEquals(TWO, request.sellOrderId()),
-                () -> assertEquals(TWO, request.fillLots())
+                () -> assertEquals(TWO, request.fillLots()),
+                () -> assertEquals(TWO, request.executionPriceQuoteAtomsPerLot())
         );
     }
 
@@ -44,7 +45,7 @@ class SettlementModelTests {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new SettlementRequest(
-                        "local-dex-001", ONE, ONE, ONE, TWO
+                        "local-dex-001", ONE, ONE, ONE, TWO, ONE
                 )
         );
     }
@@ -55,7 +56,7 @@ class SettlementModelTests {
             assertThrows(
                     IllegalArgumentException.class,
                     () -> new SettlementRequest(
-                            "local-dex-001", ONE, ONE, TWO, fill
+                            "local-dex-001", ONE, ONE, TWO, fill, ONE
                     )
             );
         }
@@ -67,19 +68,19 @@ class SettlementModelTests {
                 () -> assertThrows(
                         IllegalArgumentException.class,
                         () -> new SettlementRequest(
-                                "local-dex-001", NEGATIVE, ONE, TWO, ONE
+                                "local-dex-001", NEGATIVE, ONE, TWO, ONE, ONE
                         )
                 ),
                 () -> assertThrows(
                         IllegalArgumentException.class,
                         () -> new SettlementRequest(
-                                "local-dex-001", ONE, NEGATIVE, TWO, ONE
+                                "local-dex-001", ONE, NEGATIVE, TWO, ONE, ONE
                         )
                 ),
                 () -> assertThrows(
                         IllegalArgumentException.class,
                         () -> new SettlementRequest(
-                                "local-dex-001", ONE, ONE, NEGATIVE, ONE
+                                "local-dex-001", ONE, ONE, NEGATIVE, ONE, ONE
                         )
                 )
         );
@@ -90,7 +91,7 @@ class SettlementModelTests {
         for (String id : List.of("", " \t\n", "d".repeat(129))) {
             assertThrows(
                     IllegalArgumentException.class,
-                    () -> new SettlementRequest(id, ONE, ONE, TWO, ONE)
+                    () -> new SettlementRequest(id, ONE, ONE, TWO, ONE, ONE)
             );
         }
     }
@@ -98,7 +99,7 @@ class SettlementModelTests {
     @Test
     void acceptsRequestBoundaryValues() {
         SettlementRequest request = new SettlementRequest(
-                "d".repeat(128), ZERO, ZERO, ONE, ONE
+                "d".repeat(128), ZERO, ZERO, ONE, ONE, ONE
         );
 
         assertEquals(128, request.deploymentId().length());
@@ -112,33 +113,53 @@ class SettlementModelTests {
         assertAll(
                 () -> assertThrows(
                         NullPointerException.class,
-                        () -> new SettlementRequest(null, ONE, ONE, TWO, ONE)
-                ),
-                () -> assertThrows(
-                        NullPointerException.class,
                         () -> new SettlementRequest(
-                                "local-dex-001", null, ONE, TWO, ONE
+                                null, ONE, ONE, TWO, ONE, ONE
                         )
                 ),
                 () -> assertThrows(
                         NullPointerException.class,
                         () -> new SettlementRequest(
-                                "local-dex-001", ONE, null, TWO, ONE
+                                "local-dex-001", null, ONE, TWO, ONE, ONE
                         )
                 ),
                 () -> assertThrows(
                         NullPointerException.class,
                         () -> new SettlementRequest(
-                                "local-dex-001", ONE, ONE, null, ONE
+                                "local-dex-001", ONE, null, TWO, ONE, ONE
                         )
                 ),
                 () -> assertThrows(
                         NullPointerException.class,
                         () -> new SettlementRequest(
-                                "local-dex-001", ONE, ONE, TWO, null
+                                "local-dex-001", ONE, ONE, null, ONE, ONE
+                        )
+                ),
+                () -> assertThrows(
+                        NullPointerException.class,
+                        () -> new SettlementRequest(
+                                "local-dex-001", ONE, ONE, TWO, null, ONE
+                        )
+                ),
+                () -> assertThrows(
+                        NullPointerException.class,
+                        () -> new SettlementRequest(
+                                "local-dex-001", ONE, ONE, TWO, ONE, null
                         )
                 )
         );
+    }
+
+    @Test
+    void rejectsZeroOrNegativeExecutionPrice() {
+        for (BigInteger price : List.of(ZERO, NEGATIVE)) {
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new SettlementRequest(
+                            "local-dex-001", ONE, ONE, TWO, ONE, price
+                    )
+            );
+        }
     }
 
     @Test
@@ -404,6 +425,7 @@ class SettlementModelTests {
                 large,
                 large,
                 large.add(ONE),
+                large,
                 large
         );
 
@@ -460,7 +482,7 @@ class SettlementModelTests {
 
     private static SettlementRequest request() {
         return new SettlementRequest(
-                "local-dex-001", ONE, ONE, TWO, TWO
+                "local-dex-001", ONE, ONE, TWO, TWO, TWO
         );
     }
 

@@ -613,10 +613,22 @@ class MockBlockchainGatewayTests {
                 () -> assertEquals(OrderStatus.PARTIALLY_FILLED, alice.status()),
                 () -> assertEquals(ZERO, bob.remainingLots()),
                 () -> assertEquals(OrderStatus.FILLED, bob.status()),
-                () -> assertEquals(alice.remainingLots(),
-                        trade.sellOrderRemainingLots()),
-                () -> assertEquals(bob.remainingLots(),
-                        trade.buyOrderRemainingLots()),
+                () -> assertEquals(
+                        MockBlockchainFixtures.ALICE_ADDRESS,
+                        trade.seller()
+                ),
+                () -> assertEquals(
+                        MockBlockchainFixtures.BOB_ADDRESS,
+                        trade.buyer()
+                ),
+                () -> assertEquals(
+                        BigInteger.valueOf(40000),
+                        trade.baseAmountAtoms()
+                ),
+                () -> assertEquals(
+                        BigInteger.valueOf(400),
+                        trade.quoteAmountAtoms()
+                ),
                 () -> assertEquals(ONE, gateway.getPendingExecutorNonce()),
                 () -> assertEquals(4, gateway.getEvents(range(100, 104)).size())
         );
@@ -746,27 +758,27 @@ class MockBlockchainGatewayTests {
         List<SettlementRequest> invalidRequests = List.of(
                 new SettlementRequest(
                         "wrong-deployment", ONE, BigInteger.TWO, ONE,
-                        BigInteger.valueOf(40)
+                        BigInteger.valueOf(40), BigInteger.TEN
                 ),
                 new SettlementRequest(
                         DEPLOYMENT, BigInteger.valueOf(999), BigInteger.TWO, ONE,
-                        BigInteger.valueOf(40)
+                        BigInteger.valueOf(40), BigInteger.TEN
                 ),
                 new SettlementRequest(
                         DEPLOYMENT, ONE, BigInteger.valueOf(999), ONE,
-                        BigInteger.valueOf(40)
+                        BigInteger.valueOf(40), BigInteger.TEN
                 ),
                 new SettlementRequest(
                         DEPLOYMENT, ONE, BigInteger.TWO, BigInteger.valueOf(999),
-                        BigInteger.valueOf(40)
+                        BigInteger.valueOf(40), BigInteger.TEN
                 ),
                 new SettlementRequest(
                         DEPLOYMENT, ONE, ONE, BigInteger.TWO,
-                        BigInteger.valueOf(40)
+                        BigInteger.valueOf(40), BigInteger.TEN
                 ),
                 new SettlementRequest(
                         DEPLOYMENT, ONE, BigInteger.TWO, ONE,
-                        BigInteger.valueOf(41)
+                        BigInteger.valueOf(41), BigInteger.TEN
                 )
         );
 
@@ -913,10 +925,13 @@ class MockBlockchainGatewayTests {
                             TradeExecutedEvent trade = assertInstanceOf(
                                     TradeExecutedEvent.class, events.get(3)
                             );
-                            assertEquals(ZERO, trade.buyOrderRemainingLots());
                             assertEquals(
-                                    BigInteger.valueOf(60),
-                                    trade.sellOrderRemainingLots()
+                                    BigInteger.valueOf(40000),
+                                    trade.baseAmountAtoms()
+                            );
+                            assertEquals(
+                                    BigInteger.valueOf(400),
+                                    trade.quoteAmountAtoms()
                             );
                         }
 
@@ -979,7 +994,8 @@ class MockBlockchainGatewayTests {
                 ONE,
                 BigInteger.TWO,
                 ONE,
-                BigInteger.valueOf(40)
+                BigInteger.valueOf(40),
+                BigInteger.TEN
         );
     }
 

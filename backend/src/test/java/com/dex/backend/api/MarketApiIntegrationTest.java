@@ -242,6 +242,7 @@ class MarketApiIntegrationTest {
                 BlockchainMode.MOCK,
                 BigInteger.valueOf(chainId),
                 address(addressCharacter),
+                address(addressCharacter),
                 BigInteger.ZERO,
                 hash(hashCharacter)
         ));

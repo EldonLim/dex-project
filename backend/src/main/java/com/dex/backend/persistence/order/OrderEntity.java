@@ -118,17 +118,8 @@ public class OrderEntity {
         projectionUpdatedAt = Instant.now();
     }
 
-    public void cancel(BigInteger eventRemainingLots) {
-        Objects.requireNonNull(eventRemainingLots, "eventRemainingLots must not be null");
-
+    public void cancel() {
         requireActive("cancel");
-
-        if (!remainingLots.equals(eventRemainingLots)) {
-            throw new IllegalStateException(
-                    "Cancellation remaining lots do not match the current projection"
-            );
-        }
-
         status = OrderStatus.CANCELLED;
     }
 

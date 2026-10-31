@@ -7,6 +7,7 @@ import com.dex.backend.blockchain.event.OrderCancelledEvent;
 import com.dex.backend.blockchain.event.OrderPlacedEvent;
 import com.dex.backend.blockchain.event.TradeExecutedEvent;
 import com.dex.backend.blockchain.model.ChainPosition;
+import com.dex.backend.blockchain.model.EthereumAddress;
 import com.dex.backend.order.OrderSide;
 import com.dex.backend.order.OrderStatus;
 import com.dex.backend.persistence.deployment.ChainDeploymentEntity;
@@ -14,6 +15,8 @@ import com.dex.backend.persistence.deployment.ChainDeploymentRepository;
 import com.dex.backend.persistence.event.ProcessedEventEntity;
 import com.dex.backend.persistence.event.ProcessedEventEntityId;
 import com.dex.backend.persistence.event.ProcessedEventRepository;
+import com.dex.backend.persistence.execution.ExecutionAttemptTransitionException;
+import com.dex.backend.persistence.execution.IndexedTradeConfirmationService;
 import com.dex.backend.persistence.market.MarketEntity;
 import com.dex.backend.persistence.market.MarketEntityId;
 import com.dex.backend.persistence.market.MarketRepository;
@@ -26,6 +29,7 @@ import com.dex.backend.persistence.trade.TradeRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigInteger;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -37,19 +41,22 @@ public class EventProjectionService {
     private final OrderRepository orderRepository;
     private final TradeRepository tradeRepository;
     private final ProcessedEventRepository processedEventRepository;
+    private final IndexedTradeConfirmationService tradeConfirmationService;
 
     public EventProjectionService(
             ChainDeploymentRepository deploymentRepository,
             MarketRepository marketRepository,
             OrderRepository orderRepository,
             TradeRepository tradeRepository,
-            ProcessedEventRepository processedEventRepository
+            ProcessedEventRepository processedEventRepository,
+            IndexedTradeConfirmationService tradeConfirmationService
     ) {
         this.deploymentRepository = deploymentRepository;
         this.marketRepository = marketRepository;
         this.orderRepository = orderRepository;
         this.tradeRepository = tradeRepository;
         this.processedEventRepository = processedEventRepository;
+        this.tradeConfirmationService = tradeConfirmationService;
     }
 
     @Transactional
@@ -66,7 +73,7 @@ public class EventProjectionService {
         }
 
         ChainDeploymentEntity deployment = requireDeployment(metadata);
-        verifyEventBelongsToDeployment(metadata, deployment);
+        verifyEventBelongsToDeployment(event, deployment);
 
         switch (event) {
             case MarketRegisteredEvent marketRegistered -> applyMarketRegistered(marketRegistered);
@@ -139,12 +146,8 @@ public class EventProjectionService {
                 event
         );
 
-        if (!order.getMarketId().equals(event.marketId())) {
-            throw projectionFailure(event, "Cancellation market does not match the order");
-        }
-
         try {
-            order.cancel(event.remainingLots());
+            order.cancel();
         } catch (IllegalArgumentException | IllegalStateException exception) {
             throw projectionFailure(event, exception.getMessage());
         }
@@ -152,7 +155,10 @@ public class EventProjectionService {
 
     private void applyTradeExecuted(TradeExecutedEvent event) {
         String deploymentId = event.metadata().deploymentId();
-        requireMarket(new MarketEntityId(deploymentId, event.marketId()), event);
+        MarketEntity market = requireMarket(
+                new MarketEntityId(deploymentId, event.marketId()),
+                event
+        );
 
         OrderEntity buyOrder = requireOrder(
                 new OrderEntityId(deploymentId, event.buyOrderId()),
@@ -165,11 +171,17 @@ public class EventProjectionService {
 
         verifyTradeOrders(event, buyOrder, sellOrder);
 
+        BigInteger buyRemainingLots = buyOrder.getRemainingLots()
+                .subtract(event.fillLots());
+        BigInteger sellRemainingLots = sellOrder.getRemainingLots()
+                .subtract(event.fillLots());
+
         try {
-            buyOrder.validateFill(event.fillLots(), event.buyOrderRemainingLots());
-            sellOrder.validateFill(event.fillLots(), event.sellOrderRemainingLots());
-            buyOrder.applyFill(event.fillLots(), event.buyOrderRemainingLots());
-            sellOrder.applyFill(event.fillLots(), event.sellOrderRemainingLots());
+            verifyTradeAmountsAndOwners(event, market, buyOrder, sellOrder);
+            buyOrder.validateFill(event.fillLots(), buyRemainingLots);
+            sellOrder.validateFill(event.fillLots(), sellRemainingLots);
+            buyOrder.applyFill(event.fillLots(), buyRemainingLots);
+            sellOrder.applyFill(event.fillLots(), sellRemainingLots);
         } catch (IllegalArgumentException | IllegalStateException exception) {
             throw projectionFailure(event, exception.getMessage());
         }
@@ -194,13 +206,54 @@ public class EventProjectionService {
                 event.sellOrderId(),
                 event.fillLots(),
                 event.executionPriceQuoteAtomsPerLot(),
-                event.buyOrderRemainingLots(),
-                event.sellOrderRemainingLots(),
+                buyRemainingLots,
+                sellRemainingLots,
                 position.blockNumber(),
                 position.transactionIndex(),
                 metadata.blockHash(),
                 metadata.blockTimestamp()
         ));
+
+        try {
+            tradeConfirmationService.confirmMatchingAttempt(
+                    deploymentId,
+                    metadata.transactionHash(),
+                    event.marketId(),
+                    event.buyOrderId(),
+                    event.sellOrderId(),
+                    event.fillLots(),
+                    event.executionPriceQuoteAtomsPerLot()
+            );
+        } catch (ExecutionAttemptTransitionException
+                 | IllegalArgumentException exception) {
+            throw projectionFailure(event, exception.getMessage());
+        }
+    }
+
+    private void verifyTradeAmountsAndOwners(
+            TradeExecutedEvent event,
+            MarketEntity market,
+            OrderEntity buyOrder,
+            OrderEntity sellOrder
+    ) {
+        if (!buyOrder.getOwnerAddress().equals(event.buyer())
+                || !sellOrder.getOwnerAddress().equals(event.seller())) {
+            throw new IllegalStateException(
+                    "Trade participants do not match the projected orders"
+            );
+        }
+
+        BigInteger expectedBaseAmount = event.fillLots()
+                .multiply(market.getBaseLotSizeAtoms());
+        BigInteger expectedQuoteAmount = event.fillLots()
+                .multiply(event.executionPriceQuoteAtomsPerLot());
+
+        if (!expectedBaseAmount.equals(event.baseAmountAtoms())
+                || !expectedQuoteAmount.equals(event.quoteAmountAtoms())) {
+            throw new IllegalStateException(
+                    "Trade token amounts do not match the market units"
+            );
+        }
     }
 
     private void verifyTradeOrders(
@@ -216,6 +269,17 @@ public class EventProjectionService {
                 || !sellOrder.getMarketId().equals(event.marketId())) {
             throw projectionFailure(event, "Trade orders do not belong to the event market");
         }
+
+        if (event.executionPriceQuoteAtomsPerLot().compareTo(
+                buyOrder.getLimitPriceQuoteAtomsPerLot()
+        ) > 0 || event.executionPriceQuoteAtomsPerLot().compareTo(
+                sellOrder.getLimitPriceQuoteAtomsPerLot()
+        ) < 0) {
+            throw projectionFailure(
+                    event,
+                    "Trade execution price violates an order limit"
+            );
+        }
     }
 
     private ChainDeploymentEntity requireDeployment(EventMetadata metadata) {
@@ -226,10 +290,19 @@ public class EventProjectionService {
     }
 
     private void verifyEventBelongsToDeployment(
-            EventMetadata metadata,
+            DexEvent event,
             ChainDeploymentEntity deployment
     ) {
-        if (!deployment.getDexAddress().equals(metadata.contractAddress())) {
+        EventMetadata metadata = event.metadata();
+        EthereumAddress expectedContractAddress = switch (event) {
+            case MarketRegisteredEvent ignored ->
+                    deployment.getMarketRegistryAddress();
+            case OrderPlacedEvent ignored -> deployment.getDexAddress();
+            case OrderCancelledEvent ignored -> deployment.getDexAddress();
+            case TradeExecutedEvent ignored -> deployment.getDexAddress();
+        };
+
+        if (!expectedContractAddress.equals(metadata.contractAddress())) {
             throw new EventProjectionException(
                     "Event contract address does not match deployment " + metadata.deploymentId()
             );

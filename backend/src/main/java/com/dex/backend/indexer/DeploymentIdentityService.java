@@ -31,6 +31,7 @@ public class DeploymentIdentityService {
                                 mode,
                                 identity.chainId(),
                                 identity.dexAddress(),
+                                identity.marketRegistryAddress(),
                                 identity.deploymentBlockNumber(),
                                 identity.deploymentBlockHash()
                         ))
@@ -45,6 +46,9 @@ public class DeploymentIdentityService {
         boolean matches = existing.getAdapterMode() == mode
                 && existing.getChainId().equals(observed.chainId())
                 && existing.getDexAddress().equals(observed.dexAddress())
+                && existing.getMarketRegistryAddress().equals(
+                observed.marketRegistryAddress()
+        )
                 && existing.getDeploymentBlockNumber().equals(observed.deploymentBlockNumber())
                 && existing.getDeploymentBlockHash().equals(observed.deploymentBlockHash());
 

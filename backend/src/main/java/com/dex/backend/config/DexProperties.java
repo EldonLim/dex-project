@@ -32,6 +32,7 @@ public record DexProperties(
             URI rpcUrl,
             BigInteger expectedChainId,
             String dexAddress,
+            String marketRegistryAddress,
             BigInteger deploymentBlock
     ) {
     }
@@ -53,12 +54,21 @@ public record DexProperties(
 
     public record Matcher(
             @DefaultValue("false")
-            boolean enabled
+            boolean enabled,
+
+            @DefaultValue("2s")
+            @NotNull Duration pollInterval,
+
+            @DefaultValue("30s")
+            @NotNull Duration ineligibilityDuration
     ) {
     }
 
     public record Executor(
-            String privateKey
+            String privateKey,
+
+            @DefaultValue("2s")
+            @NotNull Duration pollInterval
     ) {
         @Override
         public String toString() {

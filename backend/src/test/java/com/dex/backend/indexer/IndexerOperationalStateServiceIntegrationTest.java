@@ -51,6 +51,7 @@ class IndexerOperationalStateServiceIntegrationTest {
                 BlockchainMode.MOCK,
                 BigInteger.valueOf(31_337),
                 new EthereumAddress("0x" + "7".repeat(40)),
+                new EthereumAddress("0x" + "7".repeat(40)),
                 BigInteger.valueOf(100),
                 hash(100)
         ));

@@ -26,6 +26,8 @@ public class DexConfigurationValidator implements InitializingBean {
     @Override
     public void afterPropertiesSet() {
         validateIndexer();
+        validateMatcher();
+        validateExecutor();
         validateCors();
 
         if (properties.blockchain().mode() == BlockchainMode.ETHEREUM) {
@@ -39,6 +41,30 @@ public class DexConfigurationValidator implements InitializingBean {
         require(
                 !interval.isZero() && !interval.isNegative(),
                 "DEX_INDEXER_POLL_INTERVAL must be positive"
+        );
+    }
+
+    private void validateMatcher() {
+        Duration pollInterval = properties.matcher().pollInterval();
+        Duration ineligibilityDuration = properties.matcher().ineligibilityDuration();
+
+        require(
+                !pollInterval.isZero() && !pollInterval.isNegative(),
+                "DEX_MATCHER_POLL_INTERVAL must be positive"
+        );
+        require(
+                !ineligibilityDuration.isZero()
+                        && !ineligibilityDuration.isNegative(),
+                "DEX_MATCHER_INELIGIBILITY_DURATION must be positive"
+        );
+    }
+
+    private void validateExecutor() {
+        Duration pollInterval = properties.executor().pollInterval();
+
+        require(
+                !pollInterval.isZero() && !pollInterval.isNegative(),
+                "DEX_EXECUTOR_POLL_INTERVAL must be positive"
         );
     }
 
@@ -84,6 +110,21 @@ public class DexConfigurationValidator implements InitializingBean {
                 StringUtils.hasText(blockchain.dexAddress())
                         && ADDRESS.matcher(blockchain.dexAddress()).matches(),
                 "DEX_CONTRACT_ADDRESS must be a normalized lowercase address"
+        );
+
+        require(
+                StringUtils.hasText(blockchain.marketRegistryAddress())
+                        && ADDRESS.matcher(
+                        blockchain.marketRegistryAddress()
+                ).matches(),
+                "DEX_MARKET_REGISTRY_ADDRESS must be a normalized lowercase address"
+        );
+
+        require(
+                !blockchain.dexAddress().equals(
+                        blockchain.marketRegistryAddress()
+                ),
+                "DEX_CONTRACT_ADDRESS and DEX_MARKET_REGISTRY_ADDRESS must differ"
         );
 
         require(

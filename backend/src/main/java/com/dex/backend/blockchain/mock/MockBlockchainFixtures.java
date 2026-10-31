@@ -85,6 +85,7 @@ public final class MockBlockchainFixtures {
             DEPLOYMENT_ID,
             CHAIN_ID,
             DEX_ADDRESS,
+            DEX_ADDRESS,
             DEPLOYMENT_BLOCK,
             BLOCK_100.hash()
     );

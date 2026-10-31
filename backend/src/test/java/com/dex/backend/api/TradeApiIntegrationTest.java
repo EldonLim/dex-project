@@ -308,6 +308,7 @@ class TradeApiIntegrationTest {
                 BlockchainMode.MOCK,
                 BigInteger.valueOf(identitySeed),
                 address(identitySeed),
+                address(identitySeed),
                 BigInteger.ZERO,
                 hash(identitySeed)
         ));

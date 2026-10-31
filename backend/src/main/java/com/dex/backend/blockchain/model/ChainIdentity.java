@@ -7,6 +7,7 @@ public record ChainIdentity(
         String deploymentId,
         BigInteger chainId,
         EthereumAddress dexAddress,
+        EthereumAddress marketRegistryAddress,
         BigInteger deploymentBlockNumber,
         Hash256 deploymentBlockHash
 ) {
@@ -22,6 +23,10 @@ public record ChainIdentity(
 
         Objects.requireNonNull(chainId, "chainId must not be null");
         Objects.requireNonNull(dexAddress, "dexAddress must not be null");
+        Objects.requireNonNull(
+                marketRegistryAddress,
+                "marketRegistryAddress must not be null"
+        );
         Objects.requireNonNull(
                 deploymentBlockNumber,
                 "deploymentBlockNumber must not be null"

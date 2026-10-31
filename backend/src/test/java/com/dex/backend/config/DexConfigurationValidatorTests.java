@@ -18,6 +18,8 @@ class DexConfigurationValidatorTests {
     private static final BigInteger CHAIN_ID = BigInteger.valueOf(31_337);
     private static final String CONTRACT_ADDRESS =
             "0x1111111111111111111111111111111111111111";
+    private static final String MARKET_REGISTRY_ADDRESS =
+            "0x2222222222222222222222222222222222222222";
     private static final String PRIVATE_KEY = "1".repeat(64);
     private static final List<URI> CORS_ORIGINS =
             List.of(URI.create("http://localhost:5173"));
@@ -73,6 +75,28 @@ class DexConfigurationValidatorTests {
     @Test
     void ethereumMatchingWithoutPrivateKeyThrows() {
         DexProperties properties = ethereumProperties(true, null);
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new DexConfigurationValidator(properties).afterPropertiesSet()
+        );
+    }
+
+    @Test
+    void ethereumModeWithoutMarketRegistryAddressThrows() {
+        DexProperties properties = ethereumPropertiesWithMarketRegistry(null);
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new DexConfigurationValidator(properties).afterPropertiesSet()
+        );
+    }
+
+    @Test
+    void ethereumModeRequiresDistinctContractAddresses() {
+        DexProperties properties = ethereumPropertiesWithMarketRegistry(
+                CONTRACT_ADDRESS
+        );
 
         assertThrows(
                 IllegalStateException.class,
@@ -185,6 +209,29 @@ class DexConfigurationValidatorTests {
         );
     }
 
+    private static DexProperties ethereumPropertiesWithMarketRegistry(
+            String marketRegistryAddress
+    ) {
+        DexProperties baseline = ethereumProperties(false, null);
+        DexProperties.Blockchain blockchain = baseline.blockchain();
+
+        return new DexProperties(
+                new DexProperties.Blockchain(
+                        blockchain.mode(),
+                        blockchain.deploymentId(),
+                        blockchain.rpcUrl(),
+                        blockchain.expectedChainId(),
+                        blockchain.dexAddress(),
+                        marketRegistryAddress,
+                        blockchain.deploymentBlock()
+                ),
+                baseline.indexer(),
+                baseline.matcher(),
+                baseline.executor(),
+                baseline.api()
+        );
+    }
+
     private static DexProperties properties(
             BlockchainMode mode,
             URI rpcUrl,
@@ -203,12 +250,169 @@ class DexConfigurationValidatorTests {
                         rpcUrl,
                         expectedChainId,
                         dexAddress,
+                        mode == BlockchainMode.ETHEREUM
+                                ? MARKET_REGISTRY_ADDRESS
+                                : null,
                         deploymentBlock
                 ),
                 new DexProperties.Indexer(true, pollInterval, 0, 500),
-                new DexProperties.Matcher(matcherEnabled),
-                new DexProperties.Executor(privateKey),
+                new DexProperties.Matcher(
+                        matcherEnabled,
+                        Duration.ofSeconds(2),
+                        Duration.ofSeconds(30)
+                ),
+                new DexProperties.Executor(
+                        privateKey,
+                        Duration.ofSeconds(2)
+                ),
                 new DexProperties.Api(corsOrigins)
+        );
+    }
+
+    @Test
+    void zeroMatcherIneligibilityDurationThrows() {
+        DexProperties properties = propertiesWithMatcherDuration(Duration.ZERO);
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new DexConfigurationValidator(properties).afterPropertiesSet()
+        );
+    }
+
+    @Test
+    void negativeMatcherIneligibilityDurationThrows() {
+        DexProperties properties = propertiesWithMatcherDuration(
+                Duration.ofSeconds(-1)
+        );
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new DexConfigurationValidator(properties).afterPropertiesSet()
+        );
+    }
+
+    @Test
+    void zeroMatcherPollIntervalThrows() {
+        DexProperties properties = propertiesWithMatcherPollInterval(
+                Duration.ZERO
+        );
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new DexConfigurationValidator(properties).afterPropertiesSet()
+        );
+    }
+
+    @Test
+    void negativeMatcherPollIntervalThrows() {
+        DexProperties properties = propertiesWithMatcherPollInterval(
+                Duration.ofSeconds(-1)
+        );
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new DexConfigurationValidator(properties).afterPropertiesSet()
+        );
+    }
+
+    @Test
+    void zeroExecutorPollIntervalThrows() {
+        DexProperties properties = propertiesWithExecutorPollInterval(
+                Duration.ZERO
+        );
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new DexConfigurationValidator(properties).afterPropertiesSet()
+        );
+    }
+
+    @Test
+    void negativeExecutorPollIntervalThrows() {
+        DexProperties properties = propertiesWithExecutorPollInterval(
+                Duration.ofSeconds(-1)
+        );
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new DexConfigurationValidator(properties).afterPropertiesSet()
+        );
+    }
+
+    private static DexProperties propertiesWithMatcherDuration(
+            Duration ineligibilityDuration
+    ) {
+        return new DexProperties(
+                new DexProperties.Blockchain(
+                        BlockchainMode.MOCK,
+                        "test-deployment",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                ),
+                new DexProperties.Indexer(true, Duration.ofSeconds(2), 0, 500),
+                new DexProperties.Matcher(
+                        false,
+                        Duration.ofSeconds(2),
+                        ineligibilityDuration
+                ),
+                new DexProperties.Executor(null, Duration.ofSeconds(2)),
+                new DexProperties.Api(CORS_ORIGINS)
+        );
+    }
+
+    private static DexProperties propertiesWithMatcherPollInterval(
+            Duration matcherPollInterval
+    ) {
+        return new DexProperties(
+                new DexProperties.Blockchain(
+                        BlockchainMode.MOCK,
+                        "test-deployment",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                ),
+                new DexProperties.Indexer(
+                        true,
+                        Duration.ofSeconds(2),
+                        0,
+                        500
+                ),
+                new DexProperties.Matcher(
+                        false,
+                        matcherPollInterval,
+                        Duration.ofSeconds(30)
+                ),
+                new DexProperties.Executor(null, Duration.ofSeconds(2)),
+                new DexProperties.Api(CORS_ORIGINS)
+        );
+    }
+
+    private static DexProperties propertiesWithExecutorPollInterval(
+            Duration executorPollInterval
+    ) {
+        return new DexProperties(
+                new DexProperties.Blockchain(
+                        BlockchainMode.MOCK,
+                        "test-deployment",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                ),
+                new DexProperties.Indexer(true, Duration.ofSeconds(2), 0, 500),
+                new DexProperties.Matcher(
+                        false,
+                        Duration.ofSeconds(2),
+                        Duration.ofSeconds(30)
+                ),
+                new DexProperties.Executor(null, executorPollInterval),
+                new DexProperties.Api(CORS_ORIGINS)
         );
     }
 }

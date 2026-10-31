@@ -260,14 +260,54 @@ Deploy contracts in dependency order:
 2.  Deploy `TokenRegistry`.
 3.  Register approved tokens.
 4.  Deploy `MarketRegistry` with the `TokenRegistry` address.
-5.  Register the market.
-6.  Deploy `OrderBook` with the `MarketRegistry` address.
+5.  Deploy `OrderBook` with the `MarketRegistry` address.
+6.  Register the market so its event is at or after the backend's configured
+    deployment block.
 7.  Save the deployed addresses and share them with the integration
     team.
 
 After changing contract code, recompile and redeploy before relying on
 the new implementation. Restarting a local Hardhat node usually resets
 its local chain state; redeploy and refresh the addresses after a reset.
+
+For the repeatable local workflow, use Node.js 22 and run:
+
+```bash
+npm ci
+npm run verify
+npm run node:local
+```
+
+In a second terminal:
+
+```bash
+cd smart-contracts
+npm run deploy:local
+```
+
+The deployment command creates `deployments/localhost.json` and the private,
+owner-readable `deployments/localhost.env`. Both are ignored and must be
+regenerated after every node reset. The environment file contains a random,
+funded executor key for that disposable chain only.
+
+The project-root `START_HERE.md` uses `npm run deploy:ui` instead. That command
+preserves the frontend/live-matcher fixture: it funds the two standard Hardhat
+trader accounts and writes the legacy address metadata they consume. Use
+`deploy:local` for the Spring backend workflow and `deploy:ui` for the separate
+frontend/live-matcher demonstration; both regenerate the ignored
+`deployments/localhost.json` after a chain reset.
+
+To run deployment, the Alice-100/Bob-40 backend settlement, on-chain balance
+checks, and backend restart-idempotency as one command:
+
+```bash
+npm run e2e:backend
+```
+
+This command uses an isolated PostgreSQL Compose project and cleans it up on
+exit. See
+[`backend/docs/ethereum-local-acceptance.md`](../backend/docs/ethereum-local-acceptance.md)
+for the exact scenario and optional port overrides.
 
 ## Export ABIs
 

@@ -8,7 +8,8 @@ public record SettlementRequest(
         BigInteger marketId,
         BigInteger buyOrderId,
         BigInteger sellOrderId,
-        BigInteger fillLots
+        BigInteger fillLots,
+        BigInteger executionPriceQuoteAtomsPerLot
 ) {
 
     public SettlementRequest {
@@ -34,6 +35,17 @@ public record SettlementRequest(
 
         if (fillLots.signum() <= 0) {
             throw new IllegalArgumentException("fillLots must be positive");
+        }
+
+        Objects.requireNonNull(
+                executionPriceQuoteAtomsPerLot,
+                "executionPriceQuoteAtomsPerLot must not be null"
+        );
+
+        if (executionPriceQuoteAtomsPerLot.signum() <= 0) {
+            throw new IllegalArgumentException(
+                    "executionPriceQuoteAtomsPerLot must be positive"
+            );
         }
     }
 

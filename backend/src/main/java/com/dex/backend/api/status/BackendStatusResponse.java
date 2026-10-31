@@ -7,6 +7,7 @@ public record BackendStatusResponse(
         BlockchainMode blockchainMode,
         DeploymentStatusResponse deployment,
         IndexerStatusResponse indexer,
-        MatcherStatusResponse matcher
+        MatcherStatusResponse matcher,
+        ExecutorStatusResponse executor
 ) {
 }

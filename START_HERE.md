@@ -2,7 +2,7 @@
 
 ## 1. Install once
 
-Install Node.js 22 or later and MetaMask. Then open **Command Prompt (CMD)** in
+Install Node.js 22 LTS and MetaMask. Then open **Command Prompt (CMD)** in
 the project root and run:
 
 ```bat
@@ -29,7 +29,7 @@ Keep this terminal open. Restarting it resets all local blockchain data.
 
 ```bat
 cd smart-contracts
-npx hardhat run scripts/deploy.ts --network localhost
+npm run deploy:ui
 ```
 
 This deploys TKA, TKB, the registries, and OrderBook. It also gives Hardhat

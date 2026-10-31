@@ -9,13 +9,19 @@ import com.dex.backend.blockchain.event.TradeExecutedEvent;
 import com.dex.backend.blockchain.model.ChainPosition;
 import com.dex.backend.blockchain.model.EthereumAddress;
 import com.dex.backend.blockchain.model.Hash256;
+import com.dex.backend.blockchain.execution.PreparedSettlement;
+import com.dex.backend.blockchain.execution.SettlementRequest;
 import com.dex.backend.config.BlockchainMode;
+import com.dex.backend.matcher.MatchProposal;
 import com.dex.backend.order.OrderSide;
 import com.dex.backend.order.OrderStatus;
 import com.dex.backend.persistence.deployment.ChainDeploymentEntity;
 import com.dex.backend.persistence.deployment.ChainDeploymentRepository;
 import com.dex.backend.persistence.event.ProcessedEventEntityId;
 import com.dex.backend.persistence.event.ProcessedEventRepository;
+import com.dex.backend.persistence.execution.ExecutionAttemptEntity;
+import com.dex.backend.persistence.execution.ExecutionAttemptRepository;
+import com.dex.backend.persistence.execution.ExecutionAttemptStatus;
 import com.dex.backend.persistence.market.MarketEntityId;
 import com.dex.backend.persistence.market.MarketRepository;
 import com.dex.backend.persistence.order.OrderEntity;
@@ -32,6 +38,7 @@ import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigInteger;
 import java.time.Instant;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -69,6 +76,9 @@ class EventProjectionServiceIntegrationTest {
 
     @Autowired
     private ProcessedEventRepository processedEventRepository;
+
+    @Autowired
+    private ExecutionAttemptRepository executionAttemptRepository;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -121,9 +131,7 @@ class EventProjectionServiceIntegrationTest {
 
         OrderCancelledEvent cancellation = new OrderCancelledEvent(
                 metadata(fixture, 103, 3),
-                SELL_ORDER_ID,
-                MARKET_ID,
-                BigInteger.valueOf(100)
+                SELL_ORDER_ID
         );
 
         assertEquals(EventProjectionResult.APPLIED, projectionService.apply(cancellation));
@@ -152,8 +160,10 @@ class EventProjectionServiceIntegrationTest {
                 SELL_ORDER_ID,
                 BigInteger.valueOf(40),
                 BigInteger.TEN,
-                BigInteger.ZERO,
-                BigInteger.valueOf(61)
+                BUYER,
+                SELLER,
+                BigInteger.ONE,
+                BigInteger.valueOf(400)
         );
 
         assertThrows(
@@ -176,6 +186,129 @@ class EventProjectionServiceIntegrationTest {
         assertFalse(tradeRepository.existsById(eventTradeId(inconsistentTrade)));
         assertFalse(processedEventRepository.existsById(processedEventId));
         assertEquals(3, processedEventCount(fixture.deploymentId()));
+    }
+
+    @Test
+    void matchingIndexedTradeConfirmsSignedAttemptAtomically() {
+        assertTradeConfirmsAttempt(
+                "projection-confirms-signed",
+                '6',
+                6_001,
+                ExecutionAttemptStatus.SIGNED
+        );
+    }
+
+    @Test
+    void matchingIndexedTradeConfirmsSubmittedAttemptAtomically() {
+        assertTradeConfirmsAttempt(
+                "projection-confirms-submitted",
+                '7',
+                7_001,
+                ExecutionAttemptStatus.SUBMITTED
+        );
+    }
+
+    @Test
+    void matchingIndexedTradeConfirmsUncertainAttemptAtomically() {
+        assertTradeConfirmsAttempt(
+                "projection-confirms-uncertain",
+                '8',
+                8_001,
+                ExecutionAttemptStatus.UNCERTAIN
+        );
+    }
+
+    @Test
+    void mismatchedExecutionAttemptRollsBackTradeAndOrderUpdates() {
+        ProjectionFixture fixture = fixture(
+                "projection-attempt-mismatch",
+                '9',
+                9_001
+        );
+        projectionService.apply(fixture.marketEvent());
+        projectionService.apply(fixture.sellOrderEvent());
+        projectionService.apply(fixture.buyOrderEvent());
+
+        ExecutionAttemptEntity attempt = executionAttempt(
+                fixture,
+                ExecutionAttemptStatus.SUBMITTED,
+                BigInteger.valueOf(39)
+        );
+        executionAttemptRepository.saveAndFlush(attempt);
+
+        assertThrows(
+                EventProjectionException.class,
+                () -> projectionService.apply(fixture.tradeEvent())
+        );
+
+        OrderEntity sellOrder = orderRepository.findById(
+                new OrderEntityId(fixture.deploymentId(), SELL_ORDER_ID)
+        ).orElseThrow();
+        OrderEntity buyOrder = orderRepository.findById(
+                new OrderEntityId(fixture.deploymentId(), BUY_ORDER_ID)
+        ).orElseThrow();
+
+        assertEquals(BigInteger.valueOf(100), sellOrder.getRemainingLots());
+        assertEquals(BigInteger.valueOf(40), buyOrder.getRemainingLots());
+        assertFalse(tradeRepository.existsById(eventTradeId(fixture.tradeEvent())));
+        assertFalse(processedEventRepository.existsById(
+                processedEventId(fixture.tradeEvent().metadata())
+        ));
+        assertEquals(
+                ExecutionAttemptStatus.SUBMITTED,
+                executionAttemptRepository.findById(attempt.getAttemptId())
+                        .orElseThrow()
+                        .getStatus()
+        );
+    }
+
+    @Test
+    void mismatchedExecutionPriceRollsBackTradeAndOrderUpdates() {
+        ProjectionFixture fixture = fixture(
+                "projection-attempt-price-mismatch",
+                '7',
+                19_101
+        );
+        projectionService.apply(fixture.marketEvent());
+        projectionService.apply(fixture.sellOrderEvent());
+        projectionService.apply(fixture.buyOrderEvent());
+
+        ExecutionAttemptEntity attempt = executionAttempt(
+                fixture,
+                ExecutionAttemptStatus.SUBMITTED,
+                fixture.tradeEvent().fillLots()
+        );
+        executionAttemptRepository.saveAndFlush(attempt);
+
+        TradeExecutedEvent mismatchedPrice = new TradeExecutedEvent(
+                fixture.tradeEvent().metadata(),
+                fixture.tradeEvent().tradeId(),
+                fixture.tradeEvent().marketId(),
+                fixture.tradeEvent().buyOrderId(),
+                fixture.tradeEvent().sellOrderId(),
+                fixture.tradeEvent().fillLots(),
+                BigInteger.valueOf(11),
+                fixture.tradeEvent().buyer(),
+                fixture.tradeEvent().seller(),
+                fixture.tradeEvent().baseAmountAtoms(),
+                BigInteger.valueOf(440)
+        );
+
+        assertThrows(
+                EventProjectionException.class,
+                () -> projectionService.apply(mismatchedPrice)
+        );
+
+        assertFalse(tradeRepository.existsById(eventTradeId(mismatchedPrice)));
+        assertFalse(processedEventRepository.existsById(
+                processedEventId(mismatchedPrice.metadata())
+        ));
+        assertEquals(
+                ExecutionAttemptStatus.SUBMITTED,
+                executionAttemptRepository.findById(attempt.getAttemptId())
+                        .orElseThrow()
+                        .getStatus()
+        );
     }
 
     @Test
@@ -211,13 +344,69 @@ class EventProjectionServiceIntegrationTest {
         assertEquals(1, marketCount(fixture.deploymentId()));
     }
 
+    @Test
+    void marketEventsMustComeFromTheRegisteredMarketRegistry() {
+        ProjectionFixture fixture = fixture(
+                "projection-market-contract",
+                '8',
+                18_001
+        );
+        MarketRegisteredEvent original = fixture.marketEvent();
+        MarketRegisteredEvent wrongContract = new MarketRegisteredEvent(
+                withContract(original.metadata(), fixture.dexAddress()),
+                original.marketId(),
+                original.baseTokenAddress(),
+                original.quoteTokenAddress(),
+                original.baseSymbol(),
+                original.quoteSymbol(),
+                original.baseDecimals(),
+                original.quoteDecimals(),
+                original.baseLotSizeAtoms()
+        );
+
+        assertThrows(
+                EventProjectionException.class,
+                () -> projectionService.apply(wrongContract)
+        );
+    }
+
+    @Test
+    void orderEventsMustComeFromTheRegisteredOrderBook() {
+        ProjectionFixture fixture = fixture(
+                "projection-order-contract",
+                '9',
+                19_001
+        );
+        projectionService.apply(fixture.marketEvent());
+        OrderPlacedEvent original = fixture.sellOrderEvent();
+        OrderPlacedEvent wrongContract = new OrderPlacedEvent(
+                withContract(
+                        original.metadata(),
+                        fixture.marketRegistryAddress()
+                ),
+                original.orderId(),
+                original.marketId(),
+                original.owner(),
+                original.side(),
+                original.limitPriceQuoteAtomsPerLot(),
+                original.originalLots()
+        );
+
+        assertThrows(
+                EventProjectionException.class,
+                () -> projectionService.apply(wrongContract)
+        );
+    }
+
     private ProjectionFixture fixture(String deploymentId, char seed, long transactionBase) {
         EthereumAddress dexAddress = address(seed);
+        EthereumAddress marketRegistryAddress = address(transactionBase);
         deploymentRepository.saveAndFlush(new ChainDeploymentEntity(
                 deploymentId,
                 BlockchainMode.MOCK,
                 BigInteger.valueOf(transactionBase),
                 dexAddress,
+                marketRegistryAddress,
                 BigInteger.valueOf(100),
                 hash(transactionBase)
         ));
@@ -225,6 +414,7 @@ class EventProjectionServiceIntegrationTest {
         ProjectionFixture baseFixture = new ProjectionFixture(
                 deploymentId,
                 dexAddress,
+                marketRegistryAddress,
                 transactionBase,
                 null,
                 null,
@@ -232,7 +422,12 @@ class EventProjectionServiceIntegrationTest {
                 null
         );
         MarketRegisteredEvent marketEvent = new MarketRegisteredEvent(
-                metadata(baseFixture, 100, 0),
+                metadata(
+                        baseFixture,
+                        marketRegistryAddress,
+                        100,
+                        0
+                ),
                 MARKET_ID,
                 BASE_TOKEN,
                 QUOTE_TOKEN,
@@ -268,13 +463,16 @@ class EventProjectionServiceIntegrationTest {
                 SELL_ORDER_ID,
                 BigInteger.valueOf(40),
                 BigInteger.TEN,
-                BigInteger.ZERO,
-                BigInteger.valueOf(60)
+                BUYER,
+                SELLER,
+                new BigInteger("40000000000000000000"),
+                BigInteger.valueOf(400)
         );
 
         return new ProjectionFixture(
                 deploymentId,
                 dexAddress,
+                marketRegistryAddress,
                 transactionBase,
                 marketEvent,
                 sellOrderEvent,
@@ -283,10 +481,114 @@ class EventProjectionServiceIntegrationTest {
         );
     }
 
+    private void assertTradeConfirmsAttempt(
+            String deploymentId,
+            char seed,
+            long transactionBase,
+            ExecutionAttemptStatus initialStatus
+    ) {
+        ProjectionFixture fixture = fixture(
+                deploymentId,
+                seed,
+                transactionBase
+        );
+        projectionService.apply(fixture.marketEvent());
+        projectionService.apply(fixture.sellOrderEvent());
+        projectionService.apply(fixture.buyOrderEvent());
+
+        ExecutionAttemptEntity attempt = executionAttempt(
+                fixture,
+                initialStatus,
+                fixture.tradeEvent().fillLots()
+        );
+        executionAttemptRepository.saveAndFlush(attempt);
+
+        assertEquals(
+                EventProjectionResult.APPLIED,
+                projectionService.apply(fixture.tradeEvent())
+        );
+
+        ExecutionAttemptEntity confirmed = executionAttemptRepository
+                .findById(attempt.getAttemptId())
+                .orElseThrow();
+        assertEquals(ExecutionAttemptStatus.CONFIRMED, confirmed.getStatus());
+        assertTrue(confirmed.getResolvedAt() != null);
+        assertTrue(tradeRepository.existsById(eventTradeId(fixture.tradeEvent())));
+        assertTrue(processedEventRepository.existsById(
+                processedEventId(fixture.tradeEvent().metadata())
+        ));
+    }
+
+    private ExecutionAttemptEntity executionAttempt(
+            ProjectionFixture fixture,
+            ExecutionAttemptStatus status,
+            BigInteger fillLots
+    ) {
+        TradeExecutedEvent trade = fixture.tradeEvent();
+        MatchProposal proposal = new MatchProposal(
+                fixture.deploymentId(),
+                trade.marketId(),
+                trade.buyOrderId(),
+                trade.sellOrderId(),
+                fillLots,
+                trade.executionPriceQuoteAtomsPerLot()
+        );
+        Instant createdAt = Instant.now().minusSeconds(10);
+        ExecutionAttemptEntity attempt = ExecutionAttemptEntity.reserved(
+                UUID.randomUUID(),
+                proposal,
+                address('f'),
+                createdAt
+        );
+        PreparedSettlement prepared = new PreparedSettlement(
+                new SettlementRequest(
+                        proposal.deploymentId(),
+                        proposal.marketId(),
+                        proposal.buyOrderId(),
+                        proposal.sellOrderId(),
+                        proposal.fillLots(),
+                        proposal.executionPriceQuoteAtomsPerLot()
+                ),
+                address('f'),
+                BigInteger.valueOf(fixture.transactionBase()),
+                trade.metadata().transactionHash(),
+                "0x01"
+        );
+        attempt.markSigned(prepared, createdAt.plusSeconds(1));
+
+        if (status == ExecutionAttemptStatus.SUBMITTED) {
+            attempt.markSubmitted(createdAt.plusSeconds(2));
+        } else if (status == ExecutionAttemptStatus.UNCERTAIN) {
+            attempt.markUncertain(
+                    "TEST_UNCERTAIN",
+                    "Test uncertainty",
+                    createdAt.plusSeconds(2)
+            );
+        } else if (status != ExecutionAttemptStatus.SIGNED) {
+            throw new IllegalArgumentException("Unsupported test status " + status);
+        }
+
+        return attempt;
+    }
+
     private static EventMetadata metadata(ProjectionFixture fixture, long blockNumber, long eventOffset) {
+        return metadata(
+                fixture,
+                fixture.dexAddress(),
+                blockNumber,
+                eventOffset
+        );
+    }
+
+    private static EventMetadata metadata(
+            ProjectionFixture fixture,
+            EthereumAddress contractAddress,
+            long blockNumber,
+            long eventOffset
+    ) {
         return new EventMetadata(
                 fixture.deploymentId(),
-                fixture.dexAddress(),
+                contractAddress,
                 hash(fixture.transactionBase() + eventOffset),
                 hash(100_000 + blockNumber + fixture.transactionBase()),
                 new ChainPosition(
@@ -295,6 +597,20 @@ class EventProjectionServiceIntegrationTest {
                         BigInteger.ZERO
                 ),
                 START_TIME.plusSeconds(blockNumber)
+        );
+    }
+
+    private static EventMetadata withContract(
+            EventMetadata metadata,
+            EthereumAddress contractAddress
+    ) {
+        return new EventMetadata(
+                metadata.deploymentId(),
+                contractAddress,
+                metadata.transactionHash(),
+                metadata.blockHash(),
+                metadata.position(),
+                metadata.blockTimestamp()
         );
     }
 
@@ -336,6 +652,10 @@ class EventProjectionServiceIntegrationTest {
         return new EthereumAddress("0x" + String.valueOf(hexadecimalCharacter).repeat(40));
     }
 
+    private static EthereumAddress address(long value) {
+        return new EthereumAddress("0x" + "%040x".formatted(value));
+    }
+
     private static Hash256 hash(long value) {
         return new Hash256("0x" + "%064x".formatted(value));
     }
@@ -343,6 +663,7 @@ class EventProjectionServiceIntegrationTest {
     private record ProjectionFixture(
             String deploymentId,
             EthereumAddress dexAddress,
+            EthereumAddress marketRegistryAddress,
             long transactionBase,
             MarketRegisteredEvent marketEvent,
             OrderPlacedEvent sellOrderEvent,

@@ -80,6 +80,10 @@ class StatusApiIntegrationTest {
                 .andExpect(jsonPath("$.deployment.registered", is(false)))
                 .andExpect(jsonPath("$.deployment.chainId", nullValue()))
                 .andExpect(jsonPath("$.deployment.dexAddress", nullValue()))
+                .andExpect(jsonPath(
+                        "$.deployment.marketRegistryAddress",
+                        nullValue()
+                ))
                 .andExpect(jsonPath("$.deployment.deploymentBlockNumber", nullValue()))
                 .andExpect(jsonPath("$.deployment.deploymentBlockHash", nullValue()))
                 .andExpect(jsonPath("$.indexer.enabled", is(false)))
@@ -92,7 +96,9 @@ class StatusApiIntegrationTest {
                 .andExpect(jsonPath("$.indexer.lastErrorAt", nullValue()))
                 .andExpect(jsonPath("$.indexer.paused", is(false)))
                 .andExpect(jsonPath("$.matcher.enabled", is(false)))
-                .andExpect(jsonPath("$.matcher.state", is("DISABLED")));
+                .andExpect(jsonPath("$.matcher.state", is("DISABLED")))
+                .andExpect(jsonPath("$.executor.enabled", is(false)))
+                .andExpect(jsonPath("$.executor.state", is("DISABLED")));
     }
 
     @Test
@@ -104,6 +110,7 @@ class StatusApiIntegrationTest {
                 BlockchainMode.MOCK,
                 new BigInteger("9007199254740993"),
                 address(1),
+                address(2),
                 new BigInteger("9007199254740995"),
                 hash(1)
         ));
@@ -127,6 +134,10 @@ class StatusApiIntegrationTest {
                 .andExpect(jsonPath("$.deployment.registered", is(true)))
                 .andExpect(jsonPath("$.deployment.chainId", is("9007199254740993")))
                 .andExpect(jsonPath("$.deployment.dexAddress", is(address(1).value())))
+                .andExpect(jsonPath(
+                        "$.deployment.marketRegistryAddress",
+                        is(address(2).value())
+                ))
                 .andExpect(jsonPath(
                         "$.deployment.deploymentBlockNumber",
                         is("9007199254740995")
