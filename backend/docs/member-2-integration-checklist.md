@@ -79,5 +79,5 @@ Run this scenario together after the final artifacts are available:
 
 The automated acceptance command is documented in
 [Local Ethereum acceptance](ethereum-local-acceptance.md). It passed on
-2026-10-30 against backend baseline `42fb9fb`; each run records its unique
+2026-10-30 against integration checkpoint `c89b269`; each run records its unique
 deployment identifier in ignored generated metadata.

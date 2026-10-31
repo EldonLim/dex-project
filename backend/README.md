@@ -1,16 +1,38 @@
 # DEX Backend
 
-Spring Boot backend for the university decentralized-exchange project.
+Spring Boot backend for the university decentralized-exchange project. It
+indexes confirmed contract events into PostgreSQL, serves read-only APIs,
+matches compatible projected orders, and submits serialized settlement
+transactions through an explicitly selected blockchain adapter.
+
+## Contents
+
+- [Prerequisites](#prerequisites)
+- [Quick start in mock mode](#quick-start-in-mock-mode)
+- [Run against local Ethereum](#run-against-local-ethereum)
+- [Configuration reference](#configuration-reference)
+- [Blockchain integration status](#blockchain-integration-status)
+- [Indexer operation and recovery](#indexer-operation-and-recovery)
+- [Matcher operation](#matcher-operation)
+- [Settlement execution](#settlement-execution)
+- [Read API](#read-api)
+- [Testing](#testing)
+- [Security boundaries](#security-boundaries)
+- [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
 - Java 21
 - Docker with Docker Compose
+- Node.js 22 and npm for contract compilation or Ethereum acceptance runs
 
-## Run locally
+The normal backend test suite does not require Node.js. It uses the Java mock
+adapter and PostgreSQL Testcontainers.
 
-From the repository root, create and load the local environment, start PostgreSQL,
-and run the application:
+## Quick start in mock mode
+
+From the repository root, copy the safe local defaults, load them, start
+PostgreSQL, and run the application:
 
 ```bash
 cp .env.example .env
@@ -22,10 +44,123 @@ cd backend
 ./mvnw spring-boot:run
 ```
 
-The example environment explicitly selects `MOCK` blockchain mode. Ethereum
-configuration values are defined, but should be used only with deployment
-metadata matching the checked-in contracts. Never commit `.env` or real
-private keys.
+Verify the backend after its first indexing polls:
+
+```bash
+curl http://localhost:8080/api/v1/status
+curl http://localhost:8080/api/v1/markets
+curl 'http://localhost:8080/api/v1/markets/1/orderbook?limit=50'
+```
+
+The example environment explicitly selects `MOCK`, enables indexing, and
+disables matching. Its deterministic fixture contains:
+
+- market `1`, pairing `APPLE` with `USDToken`, both with two decimals;
+- a base lot size of `1000` base-token atoms;
+- Alice's older 100-lot sell order at 10 quote atoms per lot;
+- Bob's 40-lot buy order at 12 quote atoms per lot; and
+- deterministic blocks, hashes, balances, allowances, and executor identity.
+
+If `DEX_MATCHER_ENABLED=true`, the older sell price is used and the mock
+adapter can exercise the same durable settlement lifecycle as Ethereum mode.
+Mock data exists only inside the mock gateway; API responses come from the
+PostgreSQL projection after the indexer processes those mock events.
+
+Stop the application with `Ctrl-C`. Stop the development database when it is no
+longer needed:
+
+```bash
+docker compose stop postgres
+```
+
+## Run against local Ethereum
+
+The fastest supported integration path runs the complete Alice-100/Bob-40
+scenario, including a backend restart:
+
+```bash
+cd smart-contracts
+npm ci
+npm run e2e:backend
+```
+
+This starts a disposable Hardhat chain, deploys the checked-in contracts,
+creates an isolated PostgreSQL instance, runs the real backend workers, checks
+the on-chain balances and order state, restarts the backend, and proves the
+trade and executor transaction were not duplicated. See
+[Local Ethereum acceptance](docs/ethereum-local-acceptance.md) for ports,
+generated files, and exact checks.
+
+For interactive development, use separate terminals.
+
+Terminal 1:
+
+```bash
+cd smart-contracts
+npm run node:local
+```
+
+Terminal 2:
+
+```bash
+cd smart-contracts
+npm run deploy:local
+```
+
+Terminal 3, from the repository root:
+
+```bash
+cp .env.example .env
+set -a
+source .env
+source smart-contracts/deployments/localhost.env
+set +a
+export DEX_MATCHER_ENABLED=true
+docker compose up -d --wait postgres
+cd backend
+./mvnw spring-boot:run
+```
+
+The deployment command generates ignored `localhost.json` metadata and an
+owner-readable `localhost.env` containing a random key funded only on that
+disposable chain. Regenerate both after every Hardhat reset. Never commit the
+environment file, reuse its key elsewhere, or combine new chain metadata with
+an old deployment ID.
+
+## Configuration reference
+
+Spring reads these variables through `application.yaml`. Durations use Spring
+syntax such as `200ms`, `2s`, or `1m`.
+
+| Variable | Default in `.env.example` | Purpose |
+| --- | --- | --- |
+| `DEX_BLOCKCHAIN_MODE` | `MOCK` | Required adapter selection: `MOCK` or `ETHEREUM`. There is no fallback. |
+| `DEX_DEPLOYMENT_ID` | `local-mock-v1` | Stable projection namespace for one exact deployment. |
+| `DEX_RPC_URL` | empty | Absolute HTTP(S) Ethereum RPC URL; required in Ethereum mode. |
+| `DEX_EXPECTED_CHAIN_ID` | empty | Positive expected chain ID; required in Ethereum mode. |
+| `DEX_CONTRACT_ADDRESS` | empty | Lowercase OrderBook address; required in Ethereum mode. |
+| `DEX_MARKET_REGISTRY_ADDRESS` | empty | Lowercase MarketRegistry address; required in Ethereum mode and must differ from the OrderBook. |
+| `DEX_DEPLOYMENT_BLOCK` | empty | Non-negative first block whose logs rebuild this projection. |
+| `DEX_INDEXER_ENABLED` | `true` | Enables bounded fixed-delay event indexing. |
+| `DEX_INDEXER_POLL_INTERVAL` | `2s` | Positive delay between indexer invocations. |
+| `DEX_INDEXER_CONFIRMATION_DEPTH` | `0` | Blocks withheld from indexing for confirmation safety. |
+| `DEX_INDEXER_BLOCK_BATCH_SIZE` | `500` | Blocks per batch, from 1 through 10,000. |
+| `DEX_MATCHER_ENABLED` | `false` | Enables both matching and settlement execution. |
+| `DEX_MATCHER_POLL_INTERVAL` | `2s` | Positive matcher fixed delay. |
+| `DEX_MATCHER_INELIGIBILITY_DURATION` | `30s` | Positive in-memory cooldown after stale or underfunded preflight. |
+| `DEX_EXECUTOR_PRIVATE_KEY` | empty | Executor key; required only for enabled Ethereum matching. |
+| `DEX_EXECUTOR_POLL_INTERVAL` | `2s` | Positive settlement-executor fixed delay. |
+| `DEX_CORS_ORIGINS` | `http://localhost:5173` | Comma-separated exact frontend origins for `/api/v1/**`. |
+| `DATABASE_NAME` | `dex` | Compose PostgreSQL database name. |
+| `DATABASE_PORT` | `5432` | Host port published by Compose. |
+| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://localhost:5432/dex` | JDBC connection used by Spring. Keep its port/name aligned with Compose. |
+| `SPRING_DATASOURCE_USERNAME` | `dex` | Local database user. |
+| `SPRING_DATASOURCE_PASSWORD` | `dex-local-only` | Local-only example password; replace outside disposable development. |
+
+Ethereum startup validates every required identity value before processing.
+Addresses must be lowercase `0x` values. CORS entries may contain only an
+HTTP(S) scheme, host, and optional port—no wildcard, path, query, credentials,
+or fragment.
 
 Match discovery excludes both orders referenced by unresolved execution
 attempts. The operational matcher can preflight and durably reserve one match,
@@ -62,10 +197,10 @@ start without executor credentials; Ethereum matching requires a configured
 private key. The adapter never returns placeholder data and never silently
 falls back to mock mode.
 
-The controlled RPC and ABI tests do not replace a deployment-level test. Before
-using Ethereum mode as an integrated system, generate stable local deployment
-metadata and run the full Anvil/Hardhat acceptance flow described in the team
-checklist.
+The automated Hardhat acceptance flow validates deployment identity, indexing,
+matching, signing, broadcasting, receipt reconciliation, event-driven
+confirmation, balances, and restart idempotency against the checked-in
+contracts. It is a local integration test, not a production-security audit.
 
 - [Solidity integration reference](docs/contract-assumptions.md)
 - [Member 2 integration checklist](docs/member-2-integration-checklist.md)
@@ -449,7 +584,7 @@ Browser access to `/api/v1/**` is restricted to the origins configured by
 standard `application/problem+json` media type and never include stack traces or
 sensitive configuration.
 
-## Run tests
+## Testing
 
 ```bash
 cd backend
@@ -469,3 +604,103 @@ cd backend
 
 Flyway migration files are append-only after they have been applied. Add a new
 versioned migration for schema changes instead of modifying an existing one.
+
+Verify the smart contracts and deployment scripts with Node.js 22:
+
+```bash
+cd smart-contracts
+npm ci
+npm run verify
+```
+
+Run the full cross-stack acceptance separately because it starts application
+processes and an isolated Compose database:
+
+```bash
+cd smart-contracts
+npm run e2e:backend
+```
+
+## Security boundaries
+
+- The frontend submits user order and cancellation transactions through the
+  user's wallet. The backend never receives user private keys.
+- The configured executor key authorizes settlement transactions only. Treat
+  its environment, PostgreSQL rows containing signed payloads, and database
+  backups as sensitive.
+- PostgreSQL is a rebuildable projection and operational journal; confirmed
+  blockchain events remain authoritative for market, order, and trade state.
+- Java matching and preflight checks improve reliability but are not the asset
+  security boundary. The Solidity contracts must independently validate every
+  settlement and transfer both token legs atomically.
+- Public `/api/v1` endpoints are read-only. Wallet-address filters expose only
+  public chain data and do not authenticate the caller.
+- Never commit `.env`, generated `localhost.env`, real keys, RPC credentials,
+  signed transaction bytes, or database backups.
+
+## Troubleshooting
+
+### PostgreSQL does not start
+
+Run `docker compose config` from the repository root and confirm the variables
+loaded from `.env`. `DATABASE_PORT` and the port in `SPRING_DATASOURCE_URL` must
+match. If port 5432 is occupied, change both values together. Inspect the
+service with:
+
+```bash
+docker compose ps
+docker compose logs postgres
+```
+
+### Tests cannot find Docker
+
+Start Docker Desktop and confirm `docker info` succeeds. Backend tests use
+Testcontainers and do not use the manually managed Compose database.
+
+### Ethereum mode fails during startup
+
+Check that the generated local environment was sourced after `.env`. The RPC
+URL must be reachable, chain ID must match, addresses must be lowercase, and
+the configured deployment block must still exist. After a local-chain reset,
+redeploy and use the newly generated deployment ID and block metadata.
+
+### The indexer is `PAUSED` or `RETRYING`
+
+`RETRYING` normally indicates a temporary RPC or database failure and does not
+advance the checkpoint. `PAUSED` indicates a safety inconsistency and requires
+operator review and an application restart after recovery. Follow the
+[Indexer recovery runbook](docs/indexer-recovery.md); do not delete rows or
+clear a pause casually.
+
+### The matcher stays `WAITING_FOR_INDEXER`
+
+The matcher will not perform discovery or RPC preflight until the deployment is
+registered and the indexer has an unpaused, error-free checkpoint with zero
+confirmation-eligible lag. Inspect `/api/v1/status` before changing matcher
+settings.
+
+### The executor is `RETRYING` or `HALTED`
+
+Do not manually release a signed, submitted, or uncertain attempt. Those states
+may represent a transaction already accepted by the node. Preserve the database
+and chain, inspect the status and logs, and use the
+[Settlement lifecycle](docs/settlement-lifecycle.md) recovery rules.
+
+### API responses are empty or behind the chain
+
+Read endpoints expose only the configured deployment's confirmed projection.
+Allow for confirmation depth plus polling delay and check the indexer state.
+The backend deliberately makes no live RPC request while serving an API read.
+
+### Browser requests fail CORS
+
+Add the frontend's exact origin to `DEX_CORS_ORIGINS`, for example
+`http://localhost:5173`. Do not include a trailing slash or path. Restart the
+backend after changing environment variables.
+
+### Hardhat Solidity tests fail on Node 25
+
+Use Node.js 22, which is the declared contract-tooling runtime. The current
+Hardhat Solidity reporter uses a style alias rejected by Node 25. The DEX Mocha
+suite is run by `npm run verify`; the sample Solidity test is available through
+`npm run test:solidity` on the supported runtime.
