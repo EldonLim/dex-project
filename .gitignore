@@ -42,3 +42,4 @@ frontend/*.tsbuildinfo
 # Generated local deployment identity and credentials
 smart-contracts/deployments/localhost.json
 smart-contracts/deployments/localhost.env
+smart-contracts/deployments/localhost.cmd

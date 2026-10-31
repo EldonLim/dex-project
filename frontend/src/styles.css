@@ -245,6 +245,8 @@ td small, td .muted { font-weight: 400; }
 .listing-toggle strong { font-size: 17px; font-weight: 600; }
 .service-state strong { font-weight: 600; }
 .top-nav a { font-weight: 600; }
+.table-more { display: block; margin: 14px auto 18px; }
+.tx-notice.indexing .tx-icon { color: var(--amber); background: #2b2415; }
 @media (max-width:480px) {
   .market-select { font-size: 30px; }
   .market-facts strong { font-size: 13px; }

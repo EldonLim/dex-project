@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BrowserProvider,
   Contract,
   type ContractTransactionResponse,
-  EventLog,
   getAddress,
   JsonRpcProvider,
 } from "ethers";
+import { BackendApiClient, deploymentIdentityError } from "../api/backend";
 import { config, expectedChainHex } from "../config";
 import { erc20Abi, marketRegistryAbi, orderBookAbi, tokenRegistryAbi } from "../contracts/abis";
 import { friendlyError } from "../lib/errors";
-import type { BackendHealth, Market, Order, OrderStatus, Side, TokenMeta, Trade, TxNotice } from "../types";
+import type { BackendHealth, Market, Order, OrderBookOrder, Side, Trade, TxNotice } from "../types";
 
 interface EthereumProvider {
   request(args: { method: string; params?: unknown[] | object }): Promise<unknown>;
@@ -24,42 +24,34 @@ declare global {
   }
 }
 
-interface RawOrder {
-  id: bigint;
-  owner: string;
-  marketId: bigint;
-  side: bigint;
-  originalLots: bigint;
-  remainingLots: bigint;
-  limitPrice: bigint;
-  status: bigint;
-}
-
-const statusNames: OrderStatus[] = ["OPEN", "FILLED", "CANCELLED"];
-const MAX_CHAIN_ORDERS = 500n;
-
-function safeNumber(value: bigint, label: string): number {
-  if (value > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error(`${label} is too large for this interface.`);
-  return Number(value);
-}
+const emptyBalances = { base: 0n, quote: 0n, baseAllowance: 0n, quoteAllowance: 0n };
+const sleep = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
 export function useDex() {
-  const readProvider = useMemo(() => new JsonRpcProvider(config.rpcUrl, config.chainId, { staticNetwork: true }), []);
-  const tokenCache = useRef(new Map<string, TokenMeta>());
+  const api = useMemo(() => new BackendApiClient(config.backendUrl), []);
+  const readProvider = useMemo(
+    () => new JsonRpcProvider(config.rpcUrl, config.chainId, { staticNetwork: true }),
+    [],
+  );
   const [account, setAccount] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [markets, setMarkets] = useState<Market[]>([]);
   const [selectedMarketId, setSelectedMarketId] = useState<bigint | null>(null);
+  const [orderBook, setOrderBook] = useState<OrderBookOrder[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [ordersCursor, setOrdersCursor] = useState<string | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [balances, setBalances] = useState({ base: 0n, quote: 0n, baseAllowance: 0n, quoteAllowance: 0n });
+  const [tradesCursor, setTradesCursor] = useState<string | null>(null);
+  const [balances, setBalances] = useState(emptyBalances);
   const [owners, setOwners] = useState({ tokenRegistry: "", marketRegistry: "" });
   const [loading, setLoading] = useState(true);
+  const [loadingMoreOrders, setLoadingMoreOrders] = useState(false);
+  const [loadingMoreTrades, setLoadingMoreTrades] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [txNotices, setTxNotices] = useState<TxNotice[]>([]);
-  const [backend, setBackend] = useState<BackendHealth>({ online: false, stale: false, checkedAt: Date.now() });
+  const [backend, setBackend] = useState<BackendHealth>({ online: false, checkedAt: Date.now() });
 
   const selectedMarket = useMemo(
     () => markets.find((market) => market.id === selectedMarketId) ?? null,
@@ -69,107 +61,70 @@ export function useDex() {
   const isTokenAdmin = !!account && owners.tokenRegistry.toLowerCase() === account.toLowerCase();
   const isMarketAdmin = !!account && owners.marketRegistry.toLowerCase() === account.toLowerCase();
 
-  const readToken = useCallback(async (address: string): Promise<TokenMeta> => {
-    const checksum = getAddress(address);
-    const cached = tokenCache.current.get(checksum);
-    if (cached) return cached;
-    const contract = new Contract(checksum, erc20Abi, readProvider);
-    const [name, symbol, decimals] = await Promise.all([contract.name(), contract.symbol(), contract.decimals()]);
-    const token = { address: checksum, name: String(name), symbol: String(symbol), decimals: Number(decimals) };
-    tokenCache.current.set(checksum, token);
-    return token;
-  }, [readProvider]);
-
-  const loadBackendHealth = useCallback(async () => {
-    if (!config.backendUrl) {
-      setBackend({ online: false, stale: false, checkedAt: Date.now() });
-      return;
-    }
-    try {
-      const response = await fetch(`${config.backendUrl}/health`, { signal: AbortSignal.timeout(3500) });
-      if (!response.ok) throw new Error(String(response.status));
-      const raw = await response.json() as Record<string, unknown>;
-      const indexedBlock = typeof raw.indexedBlock === "number" ? raw.indexedBlock : undefined;
-      const responseChainId = typeof raw.chainId === "number" ? raw.chainId : undefined;
-      const stale = raw.stale === true || (responseChainId !== undefined && responseChainId !== config.chainId);
-      setBackend({ online: true, indexedBlock, chainId: responseChainId, stale, checkedAt: Date.now() });
-    } catch {
-      setBackend({ online: false, stale: false, checkedAt: Date.now() });
-    }
+  const applyBackendStatus = useCallback((status: BackendHealth): BackendHealth => {
+    const identityError = deploymentIdentityError(status, {
+      deploymentId: config.deploymentId,
+      chainId: config.chainId,
+      dexAddress: config.orderBookAddress,
+      marketRegistryAddress: config.marketRegistryAddress,
+    });
+    const checked = { ...status, identityError };
+    setBackend(checked);
+    return checked;
   }, []);
+
+  const loadBackendStatus = useCallback(async (): Promise<BackendHealth> => {
+    try {
+      return applyBackendStatus(await api.status());
+    } catch {
+      const offline: BackendHealth = { online: false, checkedAt: Date.now() };
+      setBackend(offline);
+      return offline;
+    }
+  }, [api, applyBackendStatus]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setLoadError("");
     try {
-      const marketRegistry = new Contract(config.marketRegistryAddress, marketRegistryAbi, readProvider);
-      const orderBook = new Contract(config.orderBookAddress, orderBookAbi, readProvider);
       const tokenRegistry = new Contract(config.tokenRegistryAddress, tokenRegistryAbi, readProvider);
-      const [nextMarketRaw, nextOrderRaw, tokenOwner, marketOwner] = await Promise.all([
-        marketRegistry.nextMarketId(),
-        orderBook.nextOrderId(),
+      const marketRegistry = new Contract(config.marketRegistryAddress, marketRegistryAbi, readProvider);
+      const [status, loadedMarkets, tokenOwner, marketOwner] = await Promise.all([
+        api.status(),
+        api.markets(),
         tokenRegistry.owner(),
         marketRegistry.owner(),
       ]);
-      const nextMarketIdValue = nextMarketRaw as bigint;
-      const nextOrderIdValue = nextOrderRaw as bigint;
+      applyBackendStatus(status);
       setOwners({ tokenRegistry: getAddress(String(tokenOwner)), marketRegistry: getAddress(String(marketOwner)) });
-
-      const marketIds = Array.from({ length: safeNumber(nextMarketIdValue - 1n, "Market count") }, (_, index) => BigInt(index + 1));
-      const loadedMarkets = await Promise.all(marketIds.map(async (id): Promise<Market> => {
-        const raw = await marketRegistry.getMarket(id) as [string, string, bigint, boolean];
-        const [baseToken, quoteToken] = await Promise.all([readToken(raw[0]), readToken(raw[1])]);
-        return { id, baseToken, quoteToken, baseLotAtoms: raw[2] };
-      }));
       setMarkets(loadedMarkets);
+
       const activeMarketId = selectedMarketId && loadedMarkets.some((market) => market.id === selectedMarketId)
         ? selectedMarketId
         : loadedMarkets[0]?.id ?? null;
+      const market = loadedMarkets.find((candidate) => candidate.id === activeMarketId);
       setSelectedMarketId(activeMarketId);
 
-      const firstOrder = nextOrderIdValue > MAX_CHAIN_ORDERS ? nextOrderIdValue - MAX_CHAIN_ORDERS : 1n;
-      const orderIds = Array.from(
-        { length: safeNumber(nextOrderIdValue - firstOrder, "Order count") },
-        (_, index) => firstOrder + BigInt(index),
-      );
-      const loadedOrders = await Promise.all(orderIds.map(async (id): Promise<Order> => {
-        const raw = await orderBook.getOrder(id) as RawOrder;
-        return {
-          id: raw.id,
-          owner: getAddress(raw.owner),
-          marketId: raw.marketId,
-          side: Number(raw.side) === 0 ? "BUY" : "SELL",
-          originalLots: raw.originalLots,
-          remainingLots: raw.remainingLots,
-          limitPrice: raw.limitPrice,
-          status: statusNames[Number(raw.status)] ?? "OPEN",
-        };
-      }));
-      setOrders(loadedOrders);
-
-      if (activeMarketId) {
-        const eventLogs = await orderBook.queryFilter(orderBook.filters.TradeExecuted(null, null, activeMarketId), config.deploymentBlock);
-        const loadedTrades = eventLogs.filter((log): log is EventLog => log instanceof EventLog).map((log): Trade => ({
-          transactionHash: log.transactionHash,
-          blockNumber: log.blockNumber,
-          buyOrderId: log.args.buyOrderId as bigint,
-          sellOrderId: log.args.sellOrderId as bigint,
-          marketId: log.args.marketId as bigint,
-          buyer: getAddress(log.args.buyer as string),
-          seller: getAddress(log.args.seller as string),
-          fillLots: log.args.fillLots as bigint,
-          executionPrice: log.args.executionPrice as bigint,
-          baseAtoms: log.args.baseAtoms as bigint,
-          quoteAtoms: log.args.quoteAtoms as bigint,
-        })).sort((a, b) => b.blockNumber - a.blockNumber);
-        setTrades(loadedTrades);
-      } else {
+      if (!market) {
+        setOrderBook([]);
+        setOrders([]);
+        setOrdersCursor(null);
         setTrades([]);
-      }
+        setTradesCursor(null);
+        setBalances(emptyBalances);
+      } else {
+        const [book, tradePage, orderPage] = await Promise.all([
+          api.orderBook(market.id),
+          api.trades(market),
+          account ? api.walletOrders(account, market.id) : Promise.resolve({ items: [], nextCursor: null }),
+        ]);
+        setOrderBook([...book.asks, ...book.bids]);
+        setTrades(tradePage.items);
+        setTradesCursor(tradePage.nextCursor);
+        setOrders(orderPage.items);
+        setOrdersCursor(orderPage.nextCursor);
 
-      if (account && activeMarketId) {
-        const market = loadedMarkets.find((candidate) => candidate.id === activeMarketId);
-        if (market) {
+        if (account) {
           const base = new Contract(market.baseToken.address, erc20Abi, readProvider);
           const quote = new Contract(market.quoteToken.address, erc20Abi, readProvider);
           const [baseBalance, quoteBalance, baseAllowance, quoteAllowance] = await Promise.all([
@@ -184,18 +139,46 @@ export function useDex() {
             baseAllowance: baseAllowance as bigint,
             quoteAllowance: quoteAllowance as bigint,
           });
+        } else {
+          setBalances(emptyBalances);
         }
-      } else {
-        setBalances({ base: 0n, quote: 0n, baseAllowance: 0n, quoteAllowance: 0n });
       }
       setLastUpdated(Date.now());
     } catch (error) {
-      setLoadError(`Unable to read the local deployment. ${friendlyError(error).message}`);
+      setLoadError(`Unable to load the backend projection. ${friendlyError(error).message}`);
+      await loadBackendStatus();
     } finally {
       setLoading(false);
     }
-    void loadBackendHealth();
-  }, [account, loadBackendHealth, readProvider, readToken, selectedMarketId]);
+  }, [account, api, applyBackendStatus, loadBackendStatus, readProvider, selectedMarketId]);
+
+  const loadMoreOrders = useCallback(async () => {
+    if (!account || !selectedMarket || !ordersCursor || loadingMoreOrders) return;
+    setLoadingMoreOrders(true);
+    try {
+      const page = await api.walletOrders(account, selectedMarket.id, ordersCursor);
+      setOrders((current) => [...current, ...page.items]);
+      setOrdersCursor(page.nextCursor);
+    } catch (error) {
+      setLoadError(friendlyError(error).message);
+    } finally {
+      setLoadingMoreOrders(false);
+    }
+  }, [account, api, loadingMoreOrders, ordersCursor, selectedMarket]);
+
+  const loadMoreTrades = useCallback(async () => {
+    if (!selectedMarket || !tradesCursor || loadingMoreTrades) return;
+    setLoadingMoreTrades(true);
+    try {
+      const page = await api.trades(selectedMarket, tradesCursor);
+      setTrades((current) => [...current, ...page.items]);
+      setTradesCursor(page.nextCursor);
+    } catch (error) {
+      setLoadError(friendlyError(error).message);
+    } finally {
+      setLoadingMoreTrades(false);
+    }
+  }, [api, loadingMoreTrades, selectedMarket, tradesCursor]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -243,7 +226,7 @@ export function useDex() {
   const disconnect = useCallback(() => {
     setAccount(null);
     setChainId(null);
-    setBalances({ base: 0n, quote: 0n, baseAllowance: 0n, quoteAllowance: 0n });
+    setBalances(emptyBalances);
   }, []);
 
   const switchNetwork = useCallback(async () => {
@@ -258,7 +241,12 @@ export function useDex() {
       }
       await window.ethereum.request({
         method: "wallet_addEthereumChain",
-        params: [{ chainId: expectedChainHex, chainName: config.chainName, rpcUrls: [config.rpcUrl], nativeCurrency: { name: "Test Ether", symbol: "ETH", decimals: 18 } }],
+        params: [{
+          chainId: expectedChainHex,
+          chainName: config.chainName,
+          rpcUrls: [config.rpcUrl],
+          nativeCurrency: { name: "Test Ether", symbol: "ETH", decimals: 18 },
+        }],
       });
     }
   }, []);
@@ -266,31 +254,59 @@ export function useDex() {
   const signer = useCallback(async () => {
     if (!window.ethereum || !account) throw new Error("Connect your wallet first.");
     if (wrongNetwork) throw new Error(`Switch to ${config.chainName} before continuing.`);
+    if (!backend.online) throw new Error("The Java backend must be online before submitting a transaction.");
+    if (backend.identityError) throw new Error(backend.identityError);
     return new BrowserProvider(window.ethereum).getSigner();
-  }, [account, wrongNetwork]);
+  }, [account, backend.identityError, backend.online, wrongNetwork]);
+
+  const waitForIndexedBlock = useCallback(async (blockNumber: bigint): Promise<boolean> => {
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      const status = await loadBackendStatus();
+      if (status.indexedBlock !== undefined && status.indexedBlock >= blockNumber) return true;
+      await sleep(750);
+    }
+    return false;
+  }, [loadBackendStatus]);
 
   const runTransaction = useCallback(async (
     label: string,
     submit: () => Promise<ContractTransactionResponse>,
   ): Promise<boolean> => {
     const id = `${Date.now()}-${Math.random()}`;
-    const update = (patch: Partial<TxNotice>) => setTxNotices((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
-    const initialNotice: TxNotice = { id, label, phase: "awaiting-signature", message: "Confirm this request in your wallet.", createdAt: Date.now() };
+    const update = (patch: Partial<TxNotice>) => setTxNotices(
+      (items) => items.map((item) => item.id === id ? { ...item, ...patch } : item),
+    );
+    const initialNotice: TxNotice = {
+      id,
+      label,
+      phase: "awaiting-signature",
+      message: "Confirm this request in your wallet.",
+      createdAt: Date.now(),
+    };
     setTxNotices((items) => [initialNotice, ...items].slice(0, 8));
+
     try {
       const transaction = await submit();
-      update({ phase: "submitted", hash: transaction.hash, message: "Submitted. Waiting for a confirmed receipt…" });
+      update({ phase: "submitted", hash: transaction.hash, message: "Submitted. Waiting for an on-chain receipt…" });
       const receipt = await transaction.wait();
       if (!receipt || receipt.status !== 1) throw new Error("The transaction was mined but did not succeed.");
-      update({ phase: "confirmed", message: `Confirmed in block ${receipt.blockNumber}.` });
+      update({ phase: "indexing", message: `Confirmed in block ${receipt.blockNumber}. Waiting for backend indexing…` });
+      const indexed = await waitForIndexedBlock(BigInt(receipt.blockNumber));
       await refresh();
+      update({
+        phase: "confirmed",
+        message: indexed
+          ? `Confirmed and indexed from block ${receipt.blockNumber}.`
+          : `Confirmed in block ${receipt.blockNumber}; the backend is still catching up.`,
+      });
       return true;
     } catch (error) {
       const parsed = friendlyError(error);
       update({ phase: parsed.rejected ? "rejected" : "failed", message: parsed.message });
       return false;
     }
-  }, [refresh]);
+  }, [refresh, waitForIndexedBlock]);
 
   const approve = useCallback(async (side: Side, requiredAtoms: bigint) => {
     if (!selectedMarket) return false;
@@ -303,6 +319,10 @@ export function useDex() {
 
   const placeOrder = useCallback(async (side: Side, lots: bigint, limitPrice: bigint) => {
     if (!selectedMarket) return false;
+    if (!selectedMarket.active) {
+      setLoadError("This market is inactive and cannot accept new orders.");
+      return false;
+    }
     return runTransaction(`Place ${side.toLowerCase()} order`, async () => {
       const contract = new Contract(config.orderBookAddress, orderBookAbi, await signer());
       return contract.placeOrder(selectedMarket.id, side === "BUY" ? 0 : 1, lots, limitPrice) as Promise<ContractTransactionResponse>;
@@ -328,8 +348,9 @@ export function useDex() {
 
   return {
     account, chainId, connecting, wrongNetwork, markets, selectedMarket, selectedMarketId, setSelectedMarketId,
-    orders, trades, balances, loading, loadError, lastUpdated, txNotices, clearTxNotices, backend, isTokenAdmin, isMarketAdmin,
-    walletAvailable: !!window.ethereum, connect, disconnect, switchNetwork, refresh, approve, placeOrder, cancelOrder,
-    registerToken, registerMarket,
+    orderBook, orders, ordersCursor, trades, tradesCursor, balances, loading, loadingMoreOrders, loadingMoreTrades,
+    loadError, lastUpdated, txNotices, clearTxNotices, backend, isTokenAdmin, isMarketAdmin,
+    walletAvailable: !!window.ethereum, connect, disconnect, switchNetwork, refresh, loadMoreOrders, loadMoreTrades,
+    approve, placeOrder, cancelOrder, registerToken, registerMarket,
   };
 }

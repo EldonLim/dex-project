@@ -11,33 +11,33 @@ import * as Contracts from "./index.js";
 declare module "@nomicfoundation/hardhat-ethers/types" {
   interface HardhatEthersHelpers extends HardhatEthersHelpersBase {
   getContractFactory(name: 'Counter', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.Counter__factory>
+getContractFactory(name: 'MockToken', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.MockToken__factory>
 getContractFactory(name: 'ITokenRegistry', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.ITokenRegistry__factory>
 getContractFactory(name: 'MarketRegistry', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.MarketRegistry__factory>
-getContractFactory(name: 'MockToken', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.MockToken__factory>
 getContractFactory(name: 'IMarketRegistry', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.IMarketRegistry__factory>
 getContractFactory(name: 'OrderBook', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.OrderBook__factory>
 getContractFactory(name: 'TokenRegistry', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.TokenRegistry__factory>
 
   getContractAt(name: 'Counter', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.Counter>
+getContractAt(name: 'MockToken', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.MockToken>
 getContractAt(name: 'ITokenRegistry', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.ITokenRegistry>
 getContractAt(name: 'MarketRegistry', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.MarketRegistry>
-getContractAt(name: 'MockToken', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.MockToken>
 getContractAt(name: 'IMarketRegistry', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.IMarketRegistry>
 getContractAt(name: 'OrderBook', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.OrderBook>
 getContractAt(name: 'TokenRegistry', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.TokenRegistry>
 
   deployContract(name: 'Counter', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.Counter>
+deployContract(name: 'MockToken', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.MockToken>
 deployContract(name: 'ITokenRegistry', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ITokenRegistry>
 deployContract(name: 'MarketRegistry', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.MarketRegistry>
-deployContract(name: 'MockToken', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.MockToken>
 deployContract(name: 'IMarketRegistry', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.IMarketRegistry>
 deployContract(name: 'OrderBook', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.OrderBook>
 deployContract(name: 'TokenRegistry', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.TokenRegistry>
 
   deployContract(name: 'Counter', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.Counter>
+deployContract(name: 'MockToken', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.MockToken>
 deployContract(name: 'ITokenRegistry', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ITokenRegistry>
 deployContract(name: 'MarketRegistry', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.MarketRegistry>
-deployContract(name: 'MockToken', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.MockToken>
 deployContract(name: 'IMarketRegistry', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.IMarketRegistry>
 deployContract(name: 'OrderBook', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.OrderBook>
 deployContract(name: 'TokenRegistry', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.TokenRegistry>

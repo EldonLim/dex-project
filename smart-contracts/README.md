@@ -290,12 +290,13 @@ owner-readable `deployments/localhost.env`. Both are ignored and must be
 regenerated after every node reset. The environment file contains a random,
 funded executor key for that disposable chain only.
 
-The project-root `START_HERE.md` uses `npm run deploy:ui` instead. That command
-preserves the frontend/live-matcher fixture: it funds the two standard Hardhat
-trader accounts and writes the legacy address metadata they consume. Use
-`deploy:local` for the Spring backend workflow and `deploy:ui` for the separate
-frontend/live-matcher demonstration; both regenerate the ignored
-`deployments/localhost.json` after a chain reset.
+The project-root `START_HERE.md` uses `npm run deploy:ui`. That command creates
+an empty interactive order book, funds the two standard Hardhat trader
+accounts, generates a disposable Java executor, and writes matching ignored
+configuration for Spring, Windows CMD, and Vite. It is the official integrated
+frontend and Java-backend workflow. `deploy:local` retains the seeded
+Alice-100/Bob-40 fixture used by backend acceptance automation. Both regenerate
+the ignored deployment identity after a chain reset.
 
 To run deployment, the Alice-100/Bob-40 backend settlement, on-chain balance
 checks, and backend restart-idempotency as one command:

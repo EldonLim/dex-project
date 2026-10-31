@@ -1,59 +1,108 @@
-# Run the complete DEX on Windows
+# Run the complete Java-backed DEX locally
+
+The official local application uses Hardhat, PostgreSQL, Spring Boot, React,
+and MetaMask. Spring is the only automatic matcher and settlement executor.
 
 ## 1. Install once
 
-Install Node.js 22 LTS and MetaMask. Then open **Command Prompt (CMD)** in
-the project root and run:
+Install Node.js 22 LTS, Java 21, Docker Desktop with Docker Compose, and
+MetaMask. From the project root, install the contract and frontend packages.
+
+Windows Command Prompt:
 
 ```bat
 cd smart-contracts
 npm install
-cd ..\backend\live-matcher
+cd ..\frontend
 npm install
-cd ..\..\frontend
-npm install
-copy .env.example .env
 cd ..
+copy .env.example .env
 ```
 
-## 2. Start the local blockchain (CMD terminal 1)
+macOS or Linux:
 
-```bat
+```bash
 cd smart-contracts
-npx hardhat node
+npm install
+cd ../frontend
+npm install
+cd ..
+cp .env.example .env
 ```
 
-Keep this terminal open. Restarting it resets all local blockchain data.
+## 2. Start the local blockchain (terminal 1)
 
-## 3. Deploy and fund the test wallets (CMD terminal 2)
+```text
+cd smart-contracts
+npm run node:local
+```
 
-```bat
+Keep this terminal open. Restarting Hardhat resets all local blockchain data.
+
+## 3. Deploy and generate application configuration (terminal 2)
+
+From the project root:
+
+```text
 cd smart-contracts
 npm run deploy:ui
 ```
 
-This deploys TKA, TKB, the registries, and OrderBook. It also gives Hardhat
-accounts 1 and 2 test TKA/TKB. Run this once after each blockchain restart.
+This deploys TKA, TKB, the registries, and OrderBook; registers one empty
+TKA/TKB market; funds Hardhat accounts 1 and 2 with both tokens; funds a
+disposable Java executor; and generates matching ignored configuration for
+Spring and Vite. Run it once after every Hardhat restart.
 
-## 4. Start automatic matching (CMD terminal 3)
+## 4. Start PostgreSQL (terminal 3)
 
-```bat
-cd backend\live-matcher
-npm start
+From the project root:
+
+```text
+docker compose up -d --wait postgres
 ```
 
-The healthy endpoint is <http://127.0.0.1:8081/health>. Keep this terminal open.
+## 5. Start the Java backend (terminal 4)
 
-## 5. Start the website (CMD terminal 4)
+Windows Command Prompt, from the project root:
 
 ```bat
+call smart-contracts\deployments\localhost.cmd
+cd backend
+mvnw.cmd spring-boot:run
+```
+
+macOS or Linux, from the project root:
+
+```bash
+set -a
+source .env
+source smart-contracts/deployments/localhost.env
+set +a
+cd backend
+./mvnw spring-boot:run
+```
+
+Wait for Spring to report that it started. Verify:
+
+- <http://localhost:8080/actuator/health> returns `UP`.
+- <http://localhost:8080/api/v1/status> reports the indexer, matcher, and
+  executor states.
+
+Keep this terminal open. Do not start `backend/live-matcher`; Spring now owns
+matching and settlement.
+
+## 6. Start the website (terminal 5)
+
+```text
 cd frontend
 npm run dev
 ```
 
-Open <http://localhost:5173/>.
+Open <http://localhost:5173/>. The site reads confirmed markets, orders, and
+trades from Spring on port 8080. MetaMask still signs approvals, placements,
+cancellations, and owner-only registry transactions directly.
 
-## 6. Configure MetaMask once
+## 7. Configure MetaMask once
 
 Add a custom network:
 
@@ -64,7 +113,7 @@ Add a custom network:
 | Chain ID | `31337` |
 | Currency symbol | `ETH` |
 
-Import these **local test accounts only**:
+Import these public Hardhat test accounts only:
 
 ```text
 Account 1 private key
@@ -74,61 +123,80 @@ Account 2 private key
 0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a
 ```
 
-Never use these public Hardhat keys on a real network.
+Never use these well-known local keys on a real network.
 
-## 7. Test an automatically matched trade
+## 8. Test an automatically matched trade
 
 1. Connect Account 1 to the website.
-2. Select **Sell**, enter amount `4` TKA and price `2` TKB, approve TKA, then place the sell.
+2. Select **Sell**, enter amount `4` TKA and price `2` TKB, approve TKA, then
+   place the sell.
 3. Switch MetaMask to Account 2 and reconnect if prompted.
-4. Select **Buy**, enter amount `2` TKA and price `3` TKB, approve TKB, then place the buy.
-5. Wait about two seconds and refresh the page.
+4. Select **Buy**, enter amount `2` TKA and price `3` TKB, approve TKB, then
+   place the buy.
+5. Wait for the transaction notice to say the backend indexed the transaction.
 
 The prices cross because the buy limit (`3`) is at least the sell limit (`2`).
-The matcher fills `2` lots at the older sell order's price (`2`). The buy becomes
-filled, the sell keeps `2` lots remaining, and the contract transfers 2 TKA to
-the buyer and 4 TKB to the seller in one atomic transaction.
+The Java matcher fills `2` lots at the older sell order's price (`2`). The buy
+becomes filled, the sell keeps `2` lots remaining, and the contract atomically
+transfers 2 TKA to the buyer and 4 TKB to the seller. The UI then reads the
+confirmed result from Spring's PostgreSQL projection.
 
-## 8. Run automated tests
+## 9. Run automated verification
 
-```bat
+Contracts:
+
+```text
 cd smart-contracts
-npx hardhat test test/DEX.test.ts
-
-cd ..\backend\live-matcher
-npm run build
-npm test
-```
-
-For the real-chain acceptance test, keep terminal 1 running, deploy first, then:
-
-```bat
-cd backend\live-matcher
-npm run test:e2e
+npm run verify
+npm run e2e:backend
 ```
 
 Frontend:
 
-```bat
+```text
 cd frontend
 npm run build
 npm test -- --run
 ```
 
-The Spring Boot integration tests require Docker Desktop because they use
-PostgreSQL Testcontainers:
+Spring backend tests require Docker Desktop because they use PostgreSQL
+Testcontainers.
+
+Windows:
 
 ```bat
 cd backend
-mvnw.cmd test
+mvnw.cmd verify
 ```
+
+macOS or Linux:
+
+```bash
+cd backend
+./mvnw verify
+```
+
+## Stop everything
+
+Stop Hardhat, Spring, and Vite with `Ctrl-C`, then from the project root run:
+
+```text
+docker compose down
+```
+
+Use `docker compose down --volumes` only when you intentionally want to remove
+the local PostgreSQL projection and rebuild it.
 
 ## Common fixes
 
-- `Copy-Item is not recognized`: you are in CMD; use `copy .env.example .env`.
-- `Wallet unavailable`: install/enable MetaMask and refresh the page.
-- Wrong wallet: switch account inside MetaMask, then disconnect/reconnect the site.
-- Wrong network: choose **Hardhat Local** in MetaMask.
-- `Matcher offline`: confirm terminal 3 is running and `/health` says `HEALTHY`.
-- No balance: use imported Hardhat Account 1 or 2 and redeploy after restarting the node.
-- Old or wrong contract addresses: stop the node, start it again, deploy once, and refresh.
+- **Backend offline:** confirm PostgreSQL is healthy and Spring is running on
+  port 8080.
+- **Deployment identity mismatch:** restart Hardhat, rerun `deploy:ui`, restart
+  Spring with the newly generated environment, and restart Vite.
+- **Wrong wallet:** switch accounts inside MetaMask, then disconnect/reconnect
+  the site.
+- **Wrong network:** choose **Hardhat Local** in MetaMask.
+- **No balance:** use imported Hardhat Account 1 or 2 and redeploy after
+  restarting Hardhat.
+- **Projection still starting:** wait for `/api/v1/status` to report an indexed
+  block and refresh the page.

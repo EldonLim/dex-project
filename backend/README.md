@@ -105,7 +105,7 @@ Terminal 2:
 
 ```bash
 cd smart-contracts
-npm run deploy:local
+npm run deploy:ui
 ```
 
 Terminal 3, from the repository root:
@@ -116,17 +116,19 @@ set -a
 source .env
 source smart-contracts/deployments/localhost.env
 set +a
-export DEX_MATCHER_ENABLED=true
 docker compose up -d --wait postgres
 cd backend
 ./mvnw spring-boot:run
 ```
 
-The deployment command generates ignored `localhost.json` metadata and an
+The deployment command generates ignored `localhost.json` metadata, an
 owner-readable `localhost.env` containing a random key funded only on that
-disposable chain. Regenerate both after every Hardhat reset. Never commit the
-environment file, reuse its key elsewhere, or combine new chain metadata with
-an old deployment ID.
+disposable chain, a Windows `localhost.cmd`, and `frontend/.env.local` with the
+same public deployment identity. It also enables the Java matcher for the
+interactive run. Regenerate these files after every Hardhat reset. Never commit
+the environment files, reuse their key elsewhere, or combine new chain metadata
+with an old deployment ID. The optional TypeScript live matcher must remain
+stopped while the Java matcher is active.
 
 ## Configuration reference
 

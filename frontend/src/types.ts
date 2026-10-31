@@ -1,9 +1,8 @@
 export type Side = "BUY" | "SELL";
-export type OrderStatus = "OPEN" | "FILLED" | "CANCELLED";
+export type OrderStatus = "OPEN" | "PARTIALLY_FILLED" | "FILLED" | "CANCELLED";
 
 export interface TokenMeta {
   address: string;
-  name: string;
   symbol: string;
   decimals: number;
 }
@@ -13,6 +12,21 @@ export interface Market {
   baseToken: TokenMeta;
   quoteToken: TokenMeta;
   baseLotAtoms: bigint;
+  active: boolean;
+}
+
+export interface ChainPosition {
+  blockNumber: bigint;
+  transactionIndex: bigint;
+  logIndex: bigint;
+}
+
+export interface OrderBookOrder {
+  id: bigint;
+  side: Side;
+  remainingLots: bigint;
+  limitPrice: bigint;
+  creationPosition: ChainPosition;
 }
 
 export interface Order {
@@ -24,23 +38,27 @@ export interface Order {
   remainingLots: bigint;
   limitPrice: bigint;
   status: OrderStatus;
+  creationPosition: ChainPosition;
+  creationTransactionHash: string;
+  blockTimestamp: string;
 }
 
 export interface Trade {
   transactionHash: string;
-  blockNumber: number;
+  blockNumber: bigint;
+  logIndex: bigint;
+  tradeId: bigint | null;
   buyOrderId: bigint;
   sellOrderId: bigint;
   marketId: bigint;
-  buyer: string;
-  seller: string;
   fillLots: bigint;
   executionPrice: bigint;
   baseAtoms: bigint;
   quoteAtoms: bigint;
+  blockTimestamp: string;
 }
 
-export type TxPhase = "awaiting-signature" | "submitted" | "confirmed" | "rejected" | "failed";
+export type TxPhase = "awaiting-signature" | "submitted" | "indexing" | "confirmed" | "rejected" | "failed";
 
 export interface TxNotice {
   id: string;
@@ -53,8 +71,21 @@ export interface TxNotice {
 
 export interface BackendHealth {
   online: boolean;
-  indexedBlock?: number;
-  chainId?: number;
-  stale: boolean;
+  operationalStatus?: "HEALTHY" | "STARTING" | "DEGRADED";
+  deploymentId?: string;
+  registered?: boolean;
+  chainId?: bigint;
+  dexAddress?: string;
+  marketRegistryAddress?: string;
+  indexedBlock?: bigint;
+  indexerState?: string;
+  matcherState?: string;
+  executorState?: string;
+  identityError?: string;
   checkedAt: number;
+}
+
+export interface CursorPage<T> {
+  items: T[];
+  nextCursor: string | null;
 }

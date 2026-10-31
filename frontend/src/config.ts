@@ -5,6 +5,7 @@ function envAddress(value: string | undefined, fallback: string): string {
 }
 
 export const config = {
+  deploymentId: import.meta.env.VITE_DEPLOYMENT_ID || "",
   chainId: Number(import.meta.env.VITE_CHAIN_ID || 31337),
   chainName: import.meta.env.VITE_CHAIN_NAME || "Hardhat Local",
   rpcUrl: import.meta.env.VITE_RPC_URL || "http://127.0.0.1:8545",
@@ -22,7 +23,7 @@ export const config = {
     import.meta.env.VITE_ORDER_BOOK_ADDRESS,
     "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853",
   ),
-  backendUrl: (import.meta.env.VITE_BACKEND_URL || "").replace(/\/$/, ""),
+  backendUrl: (import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:8080/api/v1").replace(/\/$/, ""),
 } as const;
 
 export const expectedChainHex = `0x${config.chainId.toString(16)}`;

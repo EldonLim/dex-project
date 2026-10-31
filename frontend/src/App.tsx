@@ -7,7 +7,7 @@ import { getAddress, parseUnits } from "ethers";
 import { config } from "./config";
 import { useDex } from "./hooks/useDex";
 import { formatAmount, formatOrderBase, formatPrice, parseOrderInput, shortAddress } from "./lib/units";
-import type { Market, Order, Side, Trade, TxNotice } from "./types";
+import type { BackendHealth, Market, Order, OrderBookOrder, Side, Trade, TxNotice } from "./types";
 
 function Brand() {
   return (
@@ -90,7 +90,7 @@ function MarketHeader(props: { markets: Market[]; market: Market | null; onChang
 }
 
 function OrderForm(props: {
-  market: Market; account: string | null; wrongNetwork: boolean;
+  market: Market; account: string | null; wrongNetwork: boolean; writesBlocked: boolean;
   balances: { base: bigint; quote: bigint; baseAllowance: bigint; quoteAllowance: bigint };
   approve: (side: Side, amount: bigint) => Promise<boolean>;
   placeOrder: (side: Side, lots: bigint, limitPrice: bigint) => Promise<boolean>;
@@ -111,7 +111,7 @@ function OrderForm(props: {
   const required = parsed.value ? (side === "BUY" ? parsed.value.quoteAtoms : parsed.value.baseAtoms) : 0n;
   const approved = required > 0n && allowance >= required;
   const funded = required > 0n && balance >= required;
-  const blocked = !props.account || props.wrongNetwork || !parsed.value;
+  const blocked = !props.account || props.wrongNetwork || props.writesBlocked || !props.market.active || !parsed.value;
 
   const doApprove = async () => {
     if (!parsed.value) return;
@@ -158,6 +158,8 @@ function OrderForm(props: {
           </button>
         </div>
         {!props.account && <p className="form-hint">Connect a wallet to approve tokens and place orders.</p>}
+        {props.writesBlocked && <p className="form-error"><AlertTriangle size={14} />Trading is blocked until the Java backend is online and its deployment identity matches.</p>}
+        {!props.market.active && <p className="form-error"><AlertTriangle size={14} />This market is inactive.</p>}
         <p className="custody-note"><ShieldCheck size={15} /> Orders do not reserve funds. Tokens stay in your wallet until a confirmed match settles.</p>
       </form>
     </section>
@@ -168,60 +170,89 @@ function EmptyRow({ text, columns }: { text: string; columns: number }) {
   return <tr><td colSpan={columns} className="empty-row">{text}</td></tr>;
 }
 
-function OrdersTable(props: { title: string; orders: Order[]; market: Market; account: string | null; onCancel?: (id: bigint) => void }) {
+function OrderBookTable(props: { orders: OrderBookOrder[]; market: Market }) {
+  return <section className="panel table-panel" id="order-book">
+    <div className="panel-heading"><div><p className="eyebrow">CONFIRMED PROJECTION</p><h2>Order book</h2></div><span className="count-badge">{props.orders.length}</span></div>
+    <div className="table-scroll"><table>
+      <thead><tr><th>ID</th><th>Side</th><th>Price</th><th>Remaining</th></tr></thead>
+      <tbody>
+        {props.orders.length === 0 && <EmptyRow text="No eligible orders to show yet." columns={4} />}
+        {props.orders.map((order) => <tr key={order.id.toString()}>
+          <td className="mono">#{order.id.toString()}</td>
+          <td><span className={`side-label ${order.side.toLowerCase()}`}>{order.side}</span></td>
+          <td className={`price-${order.side.toLowerCase()}`}>{formatPrice(order.limitPrice, props.market)} <small>{props.market.quoteToken.symbol}</small></td>
+          <td><span className="quantity-value">{formatOrderBase(order.remainingLots, props.market)}</span> <small>{props.market.baseToken.symbol}</small></td>
+        </tr>)}
+      </tbody>
+    </table></div>
+  </section>;
+}
+
+function OrdersTable(props: {
+  orders: Order[]; market: Market; account: string | null; writesBlocked: boolean;
+  hasMore: boolean; loadingMore: boolean; loadMore: () => void; onCancel: (id: bigint) => void;
+}) {
   return (
-    <section className="panel table-panel" id={props.onCancel ? "my-orders" : "order-book"}>
-      <div className="panel-heading"><div><p className="eyebrow">LIVE</p><h2>{props.title}</h2></div><span className="count-badge">{props.orders.length}</span></div>
+    <section className="panel table-panel" id="my-orders">
+      <div className="panel-heading"><div><p className="eyebrow">CONFIRMED PROJECTION</p><h2>My orders</h2></div><span className="count-badge">{props.orders.length}</span></div>
       <div className="table-scroll">
         <table>
-          <thead><tr><th>ID</th><th>Side</th><th>Price</th><th>Remaining / Original</th><th>Status</th>{props.onCancel && <th />}</tr></thead>
+          <thead><tr><th>ID</th><th>Side</th><th>Price</th><th>Remaining / Original</th><th>Status</th><th /></tr></thead>
           <tbody>
-            {props.orders.length === 0 && <EmptyRow text="No orders to show yet." columns={props.onCancel ? 6 : 5} />}
+            {props.orders.length === 0 && <EmptyRow text="No wallet orders to show yet." columns={6} />}
             {props.orders.map((order) => {
-              const partial = order.status === "OPEN" && order.remainingLots < order.originalLots;
-              const displayStatus = partial ? "PARTIAL" : order.status;
-              const canCancel = props.onCancel && props.account?.toLowerCase() === order.owner.toLowerCase() && order.status === "OPEN";
+              const displayStatus = order.status === "PARTIALLY_FILLED" ? "PARTIAL" : order.status;
+              const canCancel = !props.writesBlocked
+                && props.account?.toLowerCase() === order.owner.toLowerCase()
+                && (order.status === "OPEN" || order.status === "PARTIALLY_FILLED");
               return <tr key={order.id.toString()}>
                 <td className="mono">#{order.id.toString()}</td>
                 <td><span className={`side-label ${order.side.toLowerCase()}`}>{order.side}</span></td>
                 <td className={`price-${order.side.toLowerCase()}`}>{formatPrice(order.limitPrice, props.market)} <small>{props.market.quoteToken.symbol}</small></td>
                 <td><span className="quantity-value">{formatOrderBase(order.remainingLots, props.market)}</span> <span className="muted">/ {formatOrderBase(order.originalLots, props.market)} {props.market.baseToken.symbol}</span></td>
                 <td><span className={`status status-${displayStatus.toLowerCase()}`}>{displayStatus}</span></td>
-                {props.onCancel && <td>{canCancel && <button className="text-button danger-text" onClick={() => props.onCancel?.(order.id)}>Cancel</button>}</td>}
+                <td>{canCancel && <button className="text-button danger-text" onClick={() => props.onCancel(order.id)}>Cancel</button>}</td>
               </tr>;
             })}
           </tbody>
         </table>
       </div>
+      {props.hasMore && <button className="button table-more" onClick={props.loadMore} disabled={props.loadingMore}>{props.loadingMore ? "Loading…" : "Load more orders"}</button>}
     </section>
   );
 }
 
-function TradesTable({ trades, market }: { trades: Trade[]; market: Market }) {
+function TradesTable(props: { trades: Trade[]; market: Market; hasMore: boolean; loadingMore: boolean; loadMore: () => void }) {
+  const { trades, market } = props;
   return (
     <section className="panel table-panel trades-panel" id="recent-trades">
       <div className="panel-heading"><div><p className="eyebrow">SETTLED ON-CHAIN</p><h2>Recent trades</h2></div><span className="count-badge">{trades.length}</span></div>
       <div className="table-scroll"><table><thead><tr><th>Block</th><th>Orders</th><th>Price</th><th>Amount</th><th>Total</th><th>Transaction</th></tr></thead><tbody>
         {trades.length === 0 && <EmptyRow text="No confirmed trades for this market." columns={6} />}
-        {trades.map((trade, index) => <tr key={`${trade.transactionHash}-${index}`}>
-          <td className="mono">{trade.blockNumber}</td><td>#{trade.buyOrderId.toString()} ↔ #{trade.sellOrderId.toString()}</td>
+        {trades.map((trade) => <tr key={`${trade.transactionHash}-${trade.logIndex}`}>
+          <td className="mono">{trade.blockNumber.toString()}</td><td>#{trade.buyOrderId.toString()} ↔ #{trade.sellOrderId.toString()}</td>
           <td className="trade-price">{formatPrice(trade.executionPrice, market)} <small>{market.quoteToken.symbol}</small></td>
           <td><span className="quantity-value">{formatAmount(trade.baseAtoms, market.baseToken.decimals)}</span> <small>{market.baseToken.symbol}</small></td>
           <td>{formatAmount(trade.quoteAtoms, market.quoteToken.decimals)} <small>{market.quoteToken.symbol}</small></td>
           <td><a className="tx-link" href={config.explorerUrl ? `${config.explorerUrl}/tx/${trade.transactionHash}` : `#tx-${trade.transactionHash}`} title={trade.transactionHash} onClick={!config.explorerUrl ? (event) => event.preventDefault() : undefined}>{shortAddress(trade.transactionHash, 8)}{config.explorerUrl && <ExternalLink size={12} />}</a></td>
         </tr>)}
       </tbody></table></div>
+      {props.hasMore && <button className="button table-more" onClick={props.loadMore} disabled={props.loadingMore}>{props.loadingMore ? "Loading…" : "Load more trades"}</button>}
     </section>
   );
 }
 
-function ServiceStrip(props: { online: boolean; stale: boolean; indexedBlock?: number; lastUpdated: number | null; loading: boolean; refresh: () => void }) {
+function ServiceStrip(props: { backend: BackendHealth; lastUpdated: number | null; loading: boolean; refresh: () => void }) {
+  const warning = !!props.backend.identityError || props.backend.operationalStatus === "DEGRADED";
+  const state = props.backend.online ? (warning ? "warning" : "online") : "offline";
   return <div className="service-strip">
-    <div className={`service-state ${props.online ? (props.stale ? "warning" : "online") : "offline"}`}>
-      {props.online ? <Activity size={16} /> : <CircleOff size={16} />}
-      <span><strong>Matcher {props.online ? (props.stale ? "stale" : "online") : "offline"}</strong><small>{props.online ? `Indexed block ${props.indexedBlock ?? "not reported"}` : "Automatic matching is unavailable; wallet assets remain safe."}</small></span>
+    <div className={`service-state ${state}`}>
+      {props.backend.online ? <Activity size={16} /> : <CircleOff size={16} />}
+      <span><strong>Java backend {props.backend.online ? (props.backend.operationalStatus ?? "online") : "offline"}</strong><small>{props.backend.identityError ?? (props.backend.online
+        ? `Indexer ${props.backend.indexerState ?? "?"} · Matcher ${props.backend.matcherState ?? "?"} · Executor ${props.backend.executorState ?? "?"} · Block ${props.backend.indexedBlock?.toString() ?? "—"}`
+        : "Automatic matching is unavailable; wallet assets remain safe.")}</small></span>
     </div>
-    <div className="refresh-state"><Clock3 size={15} /> {props.lastUpdated ? `Chain refreshed ${new Date(props.lastUpdated).toLocaleTimeString()}` : "Not refreshed"}<button className="icon-button" onClick={props.refresh} disabled={props.loading} aria-label="Refresh chain data"><RefreshCw size={15} className={props.loading ? "spin" : ""} /></button></div>
+    <div className="refresh-state"><Clock3 size={15} /> {props.lastUpdated ? `Projection refreshed ${new Date(props.lastUpdated).toLocaleTimeString()}` : "Not refreshed"}<button className="icon-button" onClick={props.refresh} disabled={props.loading} aria-label="Refresh backend data"><RefreshCw size={15} className={props.loading ? "spin" : ""} /></button></div>
   </div>;
 }
 
@@ -238,7 +269,7 @@ function TxCenter({ notices, onClose }: { notices: TxNotice[]; onClose: () => vo
 }
 
 function ListingPanel(props: {
-  isTokenAdmin: boolean; isMarketAdmin: boolean; account: string | null;
+  isTokenAdmin: boolean; isMarketAdmin: boolean; account: string | null; writesBlocked: boolean;
   registerToken: (address: string) => Promise<boolean>;
   registerMarket: (base: string, quote: string, lot: bigint) => Promise<boolean>;
 }) {
@@ -268,8 +299,8 @@ function ListingPanel(props: {
     {open && <div className="listing-content">
       {!props.account && <p className="permission-note">Connect the deployment-owner wallet to use listing tools.</p>}
       {props.account && !props.isTokenAdmin && !props.isMarketAdmin && <p className="permission-note">The connected account is not a registry owner. Listing controls are read-only.</p>}
-      <form onSubmit={registerToken}><h3>1. Approve an ERC-20</h3><div className="inline-form"><input aria-label="Token contract address" placeholder="Token contract address (0x…)" value={token} onChange={(e) => setToken(e.target.value)} /><button className="button secondary" disabled={!props.isTokenAdmin || busy}>Register token</button></div></form>
-      <form onSubmit={registerMarket}><h3>2. Create a market</h3><div className="listing-grid"><input aria-label="Base token address" placeholder="Base token address" value={base} onChange={(e) => setBase(e.target.value)} /><input aria-label="Quote token address" placeholder="Quote token address" value={quote} onChange={(e) => setQuote(e.target.value)} /><input aria-label="Base lot size" placeholder="Base lot size (e.g. 0.01)" value={lot} onChange={(e) => setLot(e.target.value)} /><input aria-label="Base token decimals" placeholder="Base decimals" value={decimals} onChange={(e) => setDecimals(e.target.value)} /></div><button className="button secondary" disabled={!props.isMarketAdmin || busy}>Register market</button></form>
+      <form onSubmit={registerToken}><h3>1. Approve an ERC-20</h3><div className="inline-form"><input aria-label="Token contract address" placeholder="Token contract address (0x…)" value={token} onChange={(e) => setToken(e.target.value)} /><button className="button secondary" disabled={!props.isTokenAdmin || props.writesBlocked || busy}>Register token</button></div></form>
+      <form onSubmit={registerMarket}><h3>2. Create a market</h3><div className="listing-grid"><input aria-label="Base token address" placeholder="Base token address" value={base} onChange={(e) => setBase(e.target.value)} /><input aria-label="Quote token address" placeholder="Quote token address" value={quote} onChange={(e) => setQuote(e.target.value)} /><input aria-label="Base lot size" placeholder="Base lot size (e.g. 0.01)" value={lot} onChange={(e) => setLot(e.target.value)} /><input aria-label="Base token decimals" placeholder="Base decimals" value={decimals} onChange={(e) => setDecimals(e.target.value)} /></div><button className="button secondary" disabled={!props.isMarketAdmin || props.writesBlocked || busy}>Register market</button></form>
       {error && <p className="form-error"><AlertTriangle size={14} />{error}</p>}
       <p className="form-hint">Markets appear automatically after confirmation; no frontend source change is required.</p>
     </div>}
@@ -278,29 +309,23 @@ function ListingPanel(props: {
 
 export default function App() {
   const dex = useDex();
-  const marketOrders = dex.selectedMarket ? dex.orders.filter((order) => order.marketId === dex.selectedMarket!.id) : [];
-  const openBook = marketOrders.filter((order) => order.status === "OPEN").sort((a, b) => {
-    if (a.side !== b.side) return a.side === "SELL" ? -1 : 1;
-    if (a.limitPrice === b.limitPrice) return a.id < b.id ? -1 : 1;
-    return a.side === "BUY" ? (a.limitPrice > b.limitPrice ? -1 : 1) : (a.limitPrice < b.limitPrice ? -1 : 1);
-  });
-  const myOrders = dex.account ? marketOrders.filter((order) => order.owner.toLowerCase() === dex.account!.toLowerCase()).sort((a, b) => a.id > b.id ? -1 : 1) : [];
+  const writesBlocked = !dex.backend.online || !!dex.backend.identityError;
 
   return <>
     <Header account={dex.account} chainId={dex.chainId} connecting={dex.connecting} wrongNetwork={dex.wrongNetwork} walletAvailable={dex.walletAvailable} connect={() => void dex.connect()} disconnect={dex.disconnect} switchNetwork={() => void dex.switchNetwork()} />
     <main>
       {dex.loadError && <div className="error-banner"><AlertTriangle size={17} /><span>{dex.loadError}</span></div>}
       <MarketHeader markets={dex.markets} market={dex.selectedMarket} onChange={dex.setSelectedMarketId} />
-      <ServiceStrip online={dex.backend.online} stale={dex.backend.stale} indexedBlock={dex.backend.indexedBlock} lastUpdated={dex.lastUpdated} loading={dex.loading} refresh={() => void dex.refresh()} />
-      {dex.loading && dex.markets.length === 0 ? <div className="loading-card"><LoaderCircle className="spin" />Reading markets, orders, and token metadata…</div> : dex.selectedMarket ? <>
+      <ServiceStrip backend={dex.backend} lastUpdated={dex.lastUpdated} loading={dex.loading} refresh={() => void dex.refresh()} />
+      {dex.loading && dex.markets.length === 0 ? <div className="loading-card"><LoaderCircle className="spin" />Reading the confirmed backend projection…</div> : dex.selectedMarket ? <>
         <div className="trading-grid">
-          <OrderForm market={dex.selectedMarket} account={dex.account} wrongNetwork={dex.wrongNetwork} balances={dex.balances} approve={dex.approve} placeOrder={dex.placeOrder} />
-          <OrdersTable title="Order book" orders={openBook} market={dex.selectedMarket} account={dex.account} />
+          <OrderForm market={dex.selectedMarket} account={dex.account} wrongNetwork={dex.wrongNetwork} writesBlocked={writesBlocked} balances={dex.balances} approve={dex.approve} placeOrder={dex.placeOrder} />
+          <OrderBookTable orders={dex.orderBook} market={dex.selectedMarket} />
         </div>
-        <OrdersTable title="My orders" orders={myOrders} market={dex.selectedMarket} account={dex.account} onCancel={(id) => void dex.cancelOrder(id)} />
-        <TradesTable trades={dex.trades} market={dex.selectedMarket} />
+        <OrdersTable orders={dex.orders} market={dex.selectedMarket} account={dex.account} writesBlocked={writesBlocked} hasMore={!!dex.ordersCursor} loadingMore={dex.loadingMoreOrders} loadMore={() => void dex.loadMoreOrders()} onCancel={(id) => void dex.cancelOrder(id)} />
+        <TradesTable trades={dex.trades} market={dex.selectedMarket} hasMore={!!dex.tradesCursor} loadingMore={dex.loadingMoreTrades} loadMore={() => void dex.loadMoreTrades()} />
       </> : <div className="loading-card"><CircleOff />No registered market was found at the configured deployment.</div>}
-      <ListingPanel isTokenAdmin={dex.isTokenAdmin} isMarketAdmin={dex.isMarketAdmin} account={dex.account} registerToken={dex.registerToken} registerMarket={dex.registerMarket} />
+      <ListingPanel isTokenAdmin={dex.isTokenAdmin} isMarketAdmin={dex.isMarketAdmin} account={dex.account} writesBlocked={writesBlocked} registerToken={dex.registerToken} registerMarket={dex.registerMarket} />
       <footer><Brand /><p>SC4053 Ethereum DEX · Educational local deployment · Never use real assets.</p></footer>
     </main>
     <TxCenter notices={dex.txNotices} onClose={dex.clearTxNotices} />

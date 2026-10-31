@@ -4,9 +4,10 @@ import { formatOrderBase, formatPrice, parseOrderInput } from "./units";
 
 const market: Market = {
   id: 1n,
-  baseToken: { address: "0x0000000000000000000000000000000000000001", name: "Token A", symbol: "TKA", decimals: 18 },
-  quoteToken: { address: "0x0000000000000000000000000000000000000002", name: "Token B", symbol: "TKB", decimals: 18 },
+  baseToken: { address: "0x0000000000000000000000000000000000000001", symbol: "TKA", decimals: 18 },
+  quoteToken: { address: "0x0000000000000000000000000000000000000002", symbol: "TKB", decimals: 18 },
   baseLotAtoms: 10n ** 16n,
+  active: true,
 };
 
 describe("DEX unit conversions", () => {
