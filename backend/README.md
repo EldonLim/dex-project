@@ -16,6 +16,7 @@ transactions through an explicitly selected blockchain adapter.
 - [Matcher operation](#matcher-operation)
 - [Settlement execution](#settlement-execution)
 - [Read API](#read-api)
+- [Frontend handoff](docs/frontend-api-handoff.md)
 - [Testing](#testing)
 - [Security boundaries](#security-boundaries)
 - [Troubleshooting](#troubleshooting)
@@ -311,6 +312,10 @@ the indexed trade event must update the projections first.
 The versioned read API is available under `/api/v1`. It reads the confirmed
 PostgreSQL projection, so responses can lag the latest blockchain state by the
 configured confirmation depth and polling delay.
+
+Frontend implementers should also read the concise
+[Member 3 API handoff](docs/frontend-api-handoff.md) for JavaScript numeric
+handling, wallet responsibilities, cursor usage, freshness, errors, and CORS.
 
 ### List markets
 

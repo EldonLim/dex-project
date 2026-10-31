@@ -1,8 +1,9 @@
-# Member 2 Solidity Integration Checklist
+# Member 2 Solidity Integration Handoff
 
-This checklist coordinates the finalized Solidity handoff to the Java backend.
-It should be completed against one contract source commit or tag so the ABI,
-deployment metadata, and behavior describe the same build.
+This record coordinates the Solidity handoff to the Java backend. The checked
+items were verified together against repository integration commit `c89b269`.
+If a contract, ABI, or deployment script changes, treat that as a new handoff
+and rerun every applicable compatibility and acceptance check.
 
 The backend is aligned with the checked-in Solidity artifacts. See the
 [contract assumptions](contract-assumptions.md) for the confirmed interface and
@@ -24,6 +25,12 @@ remaining policy decisions.
 ABIs live under `smart-contracts/abi/`. Safe and private local deployment
 metadata are generated under `smart-contracts/deployments/`; generated files
 are ignored because they become invalid after a chain reset.
+
+The generated `localhost.json` is the deployment-specific handoff: it records
+the schema version, deployment ID, chain ID, deployment block number and hash,
+contract addresses, relevant transaction hashes, and acceptance-fixture
+identifiers. The companion `localhost.env` contains the ephemeral executor key
+and must remain ignored with owner-only permissions.
 
 ## Interface confirmation
 
@@ -81,3 +88,25 @@ The automated acceptance command is documented in
 [Local Ethereum acceptance](ethereum-local-acceptance.md). It passed on
 2026-10-30 against integration checkpoint `c89b269`; each run records its unique
 deployment identifier in ignored generated metadata.
+
+## Remaining team decisions before a shared or public deployment
+
+These do not block the verified local integration, but they must not be treated
+as finalized production policy:
+
+- [ ] Decide whether `executeTrade` remains callable by any address or gains an
+  executor authorization mechanism.
+- [ ] Agree on the contract-level self-trade policy. Solidity currently permits
+  self-trades while the Java matcher skips them.
+- [ ] Decide whether revert strings remain the stable error contract or are
+  replaced by documented custom errors.
+- [ ] Select the shared target network and provide its RPC access outside Git.
+- [ ] Tag the exact contract source/ABI revision used for that deployment.
+- [ ] Publish safe shared deployment metadata containing both DEX addresses,
+  token addresses, chain ID, deployment block number/hash, and deployment
+  transaction hashes.
+- [ ] Rerun `npm run verify` and `npm run e2e:backend` after any ABI or behavior
+  change, then update this handoff record.
+
+Private keys, authenticated RPC URLs, and other credentials are never handoff
+artifacts and must not be committed.
