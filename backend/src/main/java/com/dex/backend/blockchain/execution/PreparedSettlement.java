@@ -9,7 +9,7 @@ import java.util.Objects;
 import java.util.regex.Pattern;
 
 public record PreparedSettlement(
-        SettlementRequest request,
+        SettlementBatchRequest request,
         EthereumAddress executorAddress,
         BigInteger nonce,
         Hash256 transactionHash,
@@ -45,6 +45,23 @@ public record PreparedSettlement(
                             + "contain one or more complete hexadecimal bytes"
             );
         }
+    }
+
+    public PreparedSettlement(
+            SettlementRequest request,
+            EthereumAddress executorAddress,
+            BigInteger nonce,
+            Hash256 transactionHash,
+            String signedTransactionHex
+    ) {
+        this(
+                Objects.requireNonNull(request, "request must not be null")
+                        .toBatchRequest(),
+                executorAddress,
+                nonce,
+                transactionHash,
+                signedTransactionHex
+        );
     }
 
     @Override

@@ -9,6 +9,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.validation.annotation.Validated;
 
 import java.math.BigInteger;
@@ -60,8 +61,22 @@ public record DexProperties(
             @NotNull Duration pollInterval,
 
             @DefaultValue("30s")
-            @NotNull Duration ineligibilityDuration
+            @NotNull Duration ineligibilityDuration,
+
+            @DefaultValue("10")
+            @Min(1) @Max(10) int maxBatchLegs
     ) {
+        @ConstructorBinding
+        public Matcher {
+        }
+
+        public Matcher(
+                boolean enabled,
+                Duration pollInterval,
+                Duration ineligibilityDuration
+        ) {
+            this(enabled, pollInterval, ineligibilityDuration, 10);
+        }
     }
 
     public record Executor(

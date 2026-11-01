@@ -342,6 +342,74 @@ class OrderMatcherTests {
         );
     }
 
+    @Test
+    void buildsDeterministicMultiCounterpartyBatchUsingVirtualRemainders() {
+        Order sell = order(1, OrderSide.SELL, 1, 100, 100, 1);
+        Order buy40 = order(2, OrderSide.BUY, 2, 130, 40, 2);
+        Order buy30 = order(3, OrderSide.BUY, 3, 120, 30, 3);
+        Order buy20 = order(4, OrderSide.BUY, 4, 110, 20, 4);
+        List<Order> shuffled = List.of(buy20, sell, buy30, buy40);
+
+        MatchBatch batch = matcher.findNextBatch(
+                market(true),
+                shuffled,
+                10
+        ).orElseThrow();
+
+        assertAll(
+                () -> assertEquals(3, batch.legs().size()),
+                () -> assertEquals(proposal(2, 1, 40, 100), batch.legs().get(0)),
+                () -> assertEquals(proposal(3, 1, 30, 100), batch.legs().get(1)),
+                () -> assertEquals(proposal(4, 1, 20, 100), batch.legs().get(2)),
+                () -> assertEquals(
+                        batch,
+                        matcher.findNextBatch(
+                                market(true),
+                                List.of(buy30, buy40, sell, buy20),
+                                10
+                        ).orElseThrow()
+                ),
+                () -> assertEquals(BigInteger.valueOf(100), sell.remainingLots()),
+                () -> assertEquals(BigInteger.valueOf(40), buy40.remainingLots()),
+                () -> assertEquals(BigInteger.valueOf(30), buy30.remainingLots()),
+                () -> assertEquals(BigInteger.valueOf(20), buy20.remainingLots())
+        );
+    }
+
+    @Test
+    void batchRespectsLegLimitAndContinuesSelfTradeAvoidance() {
+        Order sell = order(1, OrderSide.SELL, 1, 100, 30, 1);
+        Order selfBid = order(2, OrderSide.BUY, 1, 130, 10, 2);
+        Order buyA = order(3, OrderSide.BUY, 2, 120, 10, 3);
+        Order buyB = order(4, OrderSide.BUY, 3, 110, 10, 4);
+
+        MatchBatch limited = matcher.findNextBatch(
+                market(true),
+                List.of(buyB, selfBid, sell, buyA),
+                1
+        ).orElseThrow();
+        MatchBatch complete = matcher.findNextBatch(
+                market(true),
+                List.of(buyB, selfBid, sell, buyA),
+                10
+        ).orElseThrow();
+
+        assertAll(
+                () -> assertEquals(1, limited.legs().size()),
+                () -> assertEquals(proposal(3, 1, 10, 100), limited.legs().getFirst()),
+                () -> assertEquals(2, complete.legs().size()),
+                () -> assertEquals(proposal(4, 1, 10, 100), complete.legs().get(1)),
+                () -> assertThrows(
+                        IllegalArgumentException.class,
+                        () -> matcher.findNextBatch(market(true), List.of(), 0)
+                ),
+                () -> assertThrows(
+                        IllegalArgumentException.class,
+                        () -> matcher.findNextBatch(market(true), List.of(), 11)
+                )
+        );
+    }
+
     private static Market market(boolean active) {
         return market(active, MARKET_ID);
     }

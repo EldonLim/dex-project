@@ -15,9 +15,10 @@
   trades; PostgreSQL is a rebuildable projection of confirmed logs.
 - The frontend submits `placeOrder` and `cancelOrder` through MetaMask. The
   backend never receives user private keys.
-- The backend executor submits only `executeTrade` settlements.
-- Solidity validates each settlement and uses `SafeERC20.safeTransferFrom` for
-  both token legs in one atomic transaction.
+- The backend executor submits `executeTradeBatch` settlements while the
+  original `executeTrade` interface remains available for compatibility.
+- Solidity validates every leg and uses `SafeERC20.safeTransferFrom` for both
+  token sides. Any failed leg reverts the complete batch transaction.
 - Java matching and preflight improve ordering and reliability. The contract is
   still the asset-safety boundary.
 
@@ -61,6 +62,7 @@ quoteAmountAtoms =
 | `OrderBook` | `cancelOrder` | User through MetaMask | order ID | Marks the caller-owned open order cancelled |
 | `OrderBook` | `getOrder` | Backend | order ID | Returns the complete order tuple |
 | `OrderBook` | `executeTrade` | Backend executor | buy ID, sell ID, fill lots, execution price | Validates, updates both orders, transfers both tokens, and emits `TradeExecuted` |
+| `OrderBook` | `executeTradeBatch` | Backend executor | array of 1–10 trade executions | Applies every leg atomically and emits one `TradeExecuted` per leg |
 
 ERC-20 `symbol`, `decimals`, `balanceOf`, and `allowance` calls target token
 contracts rather than either DEX contract.
@@ -141,7 +143,7 @@ maps `OPEN` plus `0 < remainingLots < originalLots` to Java
 
 The contract accepts the execution price supplied by the backend when it lies
 within both limits. This is why the backend persists its chosen execution price
-before signing and includes it in `executeTrade`.
+before signing and includes it in each `executeTradeBatch` leg.
 
 ## Chain and deployment identity
 
@@ -162,7 +164,8 @@ projection from an older local deployment.
 
 The ABI is known, but these operational and policy decisions remain:
 
-1. Restricting `executeTrade`: it is currently callable by any address.
+1. Restricting settlement calls: `executeTrade` and `executeTradeBatch` are
+   currently callable by any address.
 2. Self-trade policy: Solidity currently permits it; the Java matcher skips it.
 3. Stable error behavior: contracts currently use revert strings rather than
    custom errors.
@@ -177,7 +180,7 @@ The ABI is known, but these operational and policy decisions remain:
 
 ## Remaining backend integration work
 
-The backend now encodes and signs `executeTrade` and composes the ABI and RPC
+The backend now encodes and signs `executeTradeBatch` and composes the ABI and RPC
 clients into a complete Ethereum `BlockchainGateway` when mode is explicitly
 `ETHEREUM`. Remaining integration work is operational:
 

@@ -12,6 +12,19 @@ public record SettlementRequest(
         BigInteger executionPriceQuoteAtomsPerLot
 ) {
 
+    public SettlementBatchRequest toBatchRequest() {
+        return new SettlementBatchRequest(
+                deploymentId,
+                marketId,
+                java.util.List.of(new SettlementLeg(
+                        buyOrderId,
+                        sellOrderId,
+                        fillLots,
+                        executionPriceQuoteAtomsPerLot
+                ))
+        );
+    }
+
     public SettlementRequest {
         Objects.requireNonNull(deploymentId, "deploymentId must not be null");
 

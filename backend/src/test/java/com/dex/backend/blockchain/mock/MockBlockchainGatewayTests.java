@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 import com.dex.backend.blockchain.BlockchainGatewayException;
 import com.dex.backend.blockchain.event.TradeExecutedEvent;
 import com.dex.backend.blockchain.execution.PreparedSettlement;
+import com.dex.backend.blockchain.execution.SettlementBatchRequest;
+import com.dex.backend.blockchain.execution.SettlementLeg;
 import com.dex.backend.blockchain.execution.SettlementRequest;
 import com.dex.backend.blockchain.execution.TransactionObservation;
 import com.dex.backend.blockchain.execution.TransactionStatus;
@@ -863,6 +865,178 @@ class MockBlockchainGatewayTests {
         assertEquals(
                 TransactionStatus.NOT_FOUND,
                 second.getTransaction(prepared.transactionHash()).status()
+        );
+    }
+
+    @Test
+    void batchMiningUsesOneTransactionAndDistinctEventLogIndexes() {
+        MockBlockchainGateway gateway = gateway();
+        EthereumAddress secondBuyer = new EthereumAddress(
+                "0x" + "3".repeat(40)
+        );
+        gateway.addOrderSnapshot(new OrderSnapshot(
+                DEPLOYMENT,
+                BigInteger.valueOf(3),
+                ONE,
+                secondBuyer,
+                OrderSide.BUY,
+                BigInteger.TEN,
+                BigInteger.valueOf(30),
+                BigInteger.valueOf(30),
+                OrderStatus.OPEN
+        ));
+        gateway.setTokenBalance(
+                MockBlockchainFixtures.QUOTE_TOKEN_ADDRESS,
+                secondBuyer,
+                BigInteger.valueOf(300)
+        );
+        gateway.setTokenAllowance(
+                MockBlockchainFixtures.QUOTE_TOKEN_ADDRESS,
+                secondBuyer,
+                MockBlockchainFixtures.DEX_ADDRESS,
+                BigInteger.valueOf(300)
+        );
+        SettlementBatchRequest request = new SettlementBatchRequest(
+                DEPLOYMENT,
+                ONE,
+                List.of(
+                        new SettlementLeg(
+                                BigInteger.TWO,
+                                ONE,
+                                BigInteger.valueOf(40),
+                                BigInteger.TEN
+                        ),
+                        new SettlementLeg(
+                                BigInteger.valueOf(3),
+                                ONE,
+                                BigInteger.valueOf(30),
+                                BigInteger.TEN
+                        )
+                )
+        );
+
+        PreparedSettlement prepared = gateway.prepareSettlement(request);
+        gateway.broadcastSettlement(prepared);
+        BlockReference block = gateway.mineSuccessfulSettlement(
+                prepared.transactionHash()
+        );
+        List<TradeExecutedEvent> trades = gateway.getEvents(new BlockRange(
+                block.number(),
+                block.number()
+        )).stream().map(TradeExecutedEvent.class::cast).toList();
+
+        assertAll(
+                () -> assertEquals(2, trades.size()),
+                () -> assertEquals(
+                        prepared.transactionHash(),
+                        trades.get(0).metadata().transactionHash()
+                ),
+                () -> assertEquals(
+                        prepared.transactionHash(),
+                        trades.get(1).metadata().transactionHash()
+                ),
+                () -> assertEquals(
+                        BigInteger.ZERO,
+                        trades.get(0).metadata().position().logIndex()
+                ),
+                () -> assertEquals(
+                        BigInteger.ONE,
+                        trades.get(1).metadata().position().logIndex()
+                ),
+                () -> assertEquals(
+                        BigInteger.valueOf(30),
+                        gateway.getOrder(ONE).orElseThrow().remainingLots()
+                ),
+                () -> assertEquals(
+                        OrderStatus.FILLED,
+                        gateway.getOrder(BigInteger.valueOf(3)).orElseThrow().status()
+                )
+        );
+    }
+
+    @Test
+    void batchMiningCommitsNothingWhenLaterLegBecomesStale() {
+        MockBlockchainGateway gateway = gateway();
+        EthereumAddress secondBuyer = new EthereumAddress(
+                "0x" + "3".repeat(40)
+        );
+        OrderSnapshot secondBuy = new OrderSnapshot(
+                DEPLOYMENT,
+                BigInteger.valueOf(3),
+                ONE,
+                secondBuyer,
+                OrderSide.BUY,
+                BigInteger.TEN,
+                BigInteger.valueOf(30),
+                BigInteger.valueOf(30),
+                OrderStatus.OPEN
+        );
+        gateway.addOrderSnapshot(secondBuy);
+        gateway.setTokenBalance(
+                MockBlockchainFixtures.QUOTE_TOKEN_ADDRESS,
+                secondBuyer,
+                BigInteger.valueOf(300)
+        );
+        gateway.setTokenAllowance(
+                MockBlockchainFixtures.QUOTE_TOKEN_ADDRESS,
+                secondBuyer,
+                MockBlockchainFixtures.DEX_ADDRESS,
+                BigInteger.valueOf(300)
+        );
+        SettlementBatchRequest request = new SettlementBatchRequest(
+                DEPLOYMENT,
+                ONE,
+                List.of(
+                        new SettlementLeg(
+                                BigInteger.TWO,
+                                ONE,
+                                BigInteger.valueOf(40),
+                                BigInteger.TEN
+                        ),
+                        new SettlementLeg(
+                                BigInteger.valueOf(3),
+                                ONE,
+                                BigInteger.valueOf(30),
+                                BigInteger.TEN
+                        )
+                )
+        );
+        PreparedSettlement prepared = gateway.prepareSettlement(request);
+        gateway.broadcastSettlement(prepared);
+        gateway.replaceOrderSnapshot(new OrderSnapshot(
+                DEPLOYMENT,
+                BigInteger.valueOf(3),
+                ONE,
+                secondBuyer,
+                OrderSide.BUY,
+                BigInteger.TEN,
+                BigInteger.valueOf(30),
+                BigInteger.valueOf(20),
+                OrderStatus.PARTIALLY_FILLED
+        ));
+        OrderSnapshot sellerBefore = gateway.getOrder(ONE).orElseThrow();
+        OrderSnapshot firstBuyerBefore = gateway.getOrder(BigInteger.TWO)
+                .orElseThrow();
+        List<BigInteger> ledgerBefore = ledger(gateway);
+
+        assertThrows(
+                BlockchainGatewayException.class,
+                () -> gateway.mineSuccessfulSettlement(
+                        prepared.transactionHash()
+                )
+        );
+
+        assertAll(
+                () -> assertEquals(sellerBefore, gateway.getOrder(ONE).orElseThrow()),
+                () -> assertEquals(
+                        firstBuyerBefore,
+                        gateway.getOrder(BigInteger.TWO).orElseThrow()
+                ),
+                () -> assertEquals(ledgerBefore, ledger(gateway)),
+                () -> assertEquals(
+                        TransactionStatus.PENDING,
+                        gateway.getTransaction(prepared.transactionHash()).status()
+                )
         );
     }
 

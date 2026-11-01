@@ -315,6 +315,40 @@ class DexConfigurationValidatorTests {
         );
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {0, 11})
+    void matcherBatchLegLimitMustStayWithinContractBounds(int maxBatchLegs) {
+        DexProperties baseline = properties(
+                BlockchainMode.MOCK,
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
+                Duration.ofSeconds(2),
+                CORS_ORIGINS
+        );
+        DexProperties invalid = new DexProperties(
+                baseline.blockchain(),
+                baseline.indexer(),
+                new DexProperties.Matcher(
+                        false,
+                        Duration.ofSeconds(2),
+                        Duration.ofSeconds(30),
+                        maxBatchLegs
+                ),
+                baseline.executor(),
+                baseline.api()
+        );
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new DexConfigurationValidator(invalid)
+                        .afterPropertiesSet()
+        );
+    }
+
     @Test
     void zeroExecutorPollIntervalThrows() {
         DexProperties properties = propertiesWithExecutorPollInterval(

@@ -16,16 +16,19 @@ import java.util.UUID;
 public class ExecutionAttemptLifecycleService {
 
     private final ExecutionAttemptRepository repository;
+    private final ExecutionAttemptLegRepository legRepository;
     private final String deploymentId;
     private final Clock clock;
 
     @Autowired
     public ExecutionAttemptLifecycleService(
             ExecutionAttemptRepository repository,
+            ExecutionAttemptLegRepository legRepository,
             DexProperties properties
     ) {
         this(
                 repository,
+                legRepository,
                 properties.blockchain().deploymentId(),
                 Clock.systemUTC()
         );
@@ -33,12 +36,17 @@ public class ExecutionAttemptLifecycleService {
 
     ExecutionAttemptLifecycleService(
             ExecutionAttemptRepository repository,
+            ExecutionAttemptLegRepository legRepository,
             String deploymentId,
             Clock clock
     ) {
         this.repository = Objects.requireNonNull(
                 repository,
                 "repository must not be null"
+        );
+        this.legRepository = Objects.requireNonNull(
+                legRepository,
+                "legRepository must not be null"
         );
         this.deploymentId = requireDeploymentId(deploymentId);
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
@@ -48,7 +56,21 @@ public class ExecutionAttemptLifecycleService {
             UUID attemptId,
             PreparedSettlement preparedSettlement
     ) {
-        load(attemptId).markSigned(preparedSettlement, clock.instant());
+        ExecutionAttemptEntity attempt = load(attemptId);
+        var legs = legRepository.findByIdAttemptIdOrderByIdLegIndex(attemptId);
+        if (legs.isEmpty()) {
+            throw new ExecutionAttemptTransitionException(
+                    "Execution attempt has no settlement legs"
+            );
+        }
+        var request = new com.dex.backend.blockchain.execution.SettlementBatchRequest(
+                attempt.getDeploymentId(),
+                legs.getFirst().getMarketId(),
+                legs.stream()
+                        .map(ExecutionAttemptLegEntity::toSettlementLeg)
+                        .toList()
+        );
+        attempt.markSigned(preparedSettlement, request, clock.instant());
     }
 
     public void recordSubmitted(UUID attemptId) {

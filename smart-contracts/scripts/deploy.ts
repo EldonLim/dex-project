@@ -4,9 +4,15 @@ import { network } from "hardhat";
 
 const { ethers, networkName } = await network.getOrCreate();
 
-const [deployer, alice, bob] = await ethers.getSigners();
-if (deployer === undefined || alice === undefined || bob === undefined) {
-  throw new Error("Local deployment requires at least three funded accounts");
+const [deployer, alice, bob, carol, dave] = await ethers.getSigners();
+if (
+  deployer === undefined ||
+  alice === undefined ||
+  bob === undefined ||
+  carol === undefined ||
+  dave === undefined
+) {
+  throw new Error("Local deployment requires at least five funded accounts");
 }
 
 const outputPath = resolve(
@@ -75,21 +81,28 @@ const marketId = await marketRegistry.getMarketId(
 );
 
 const aliceBaseAmount = baseLotSizeAtoms * 100n;
-const bobQuoteAmount = executionPriceQuoteAtomsPerLot * 40n;
+const buyerFixtures = [
+  { name: "Bob", signer: bob, buyLots: 40n },
+  { name: "Carol", signer: carol, buyLots: 30n },
+  { name: "Dave", signer: dave, buyLots: 20n },
+];
 await (await tokenA.transfer(alice.address, aliceBaseAmount)).wait();
-await (await tokenB.transfer(bob.address, bobQuoteAmount)).wait();
 await (
   await tokenA.connect(alice).approve(
     await orderBook.getAddress(),
     aliceBaseAmount,
   )
 ).wait();
-await (
-  await tokenB.connect(bob).approve(
-    await orderBook.getAddress(),
-    bobQuoteAmount,
-  )
-).wait();
+for (const buyer of buyerFixtures) {
+  const quoteAmount = executionPriceQuoteAtomsPerLot * buyer.buyLots;
+  await (await tokenB.transfer(buyer.signer.address, quoteAmount)).wait();
+  await (
+    await tokenB.connect(buyer.signer).approve(
+      await orderBook.getAddress(),
+      quoteAmount,
+    )
+  ).wait();
+}
 
 const sellOrderId = await orderBook.nextOrderId();
 await (
@@ -100,15 +113,29 @@ await (
     executionPriceQuoteAtomsPerLot,
   )
 ).wait();
-const buyOrderId = await orderBook.nextOrderId();
-await (
-  await orderBook.connect(bob).placeOrder(
-    marketId,
-    0,
-    40n,
-    executionPriceQuoteAtomsPerLot,
-  )
-).wait();
+const buyers: Array<{
+  name: string;
+  address: string;
+  buyOrderId: string;
+  buyLots: string;
+}> = [];
+for (const buyer of buyerFixtures) {
+  const buyOrderId = await orderBook.nextOrderId();
+  await (
+    await orderBook.connect(buyer.signer).placeOrder(
+      marketId,
+      0,
+      buyer.buyLots,
+      executionPriceQuoteAtomsPerLot,
+    )
+  ).wait();
+  buyers.push({
+    name: buyer.name,
+    address: buyer.signer.address.toLowerCase(),
+    buyOrderId: buyOrderId.toString(),
+    buyLots: buyer.buyLots.toString(),
+  });
+}
 
 // This key exists only in the ignored local environment file. It is randomly
 // generated for each deployment and funded solely on the disposable local node.
@@ -149,15 +176,13 @@ const metadata = {
   fixture: {
     marketId: marketId.toString(),
     sellOrderId: sellOrderId.toString(),
-    buyOrderId: buyOrderId.toString(),
     alice: alice.address.toLowerCase(),
-    bob: bob.address.toLowerCase(),
+    buyers,
     executor: executor.address.toLowerCase(),
     baseLotSizeAtoms: baseLotSizeAtoms.toString(),
     executionPriceQuoteAtomsPerLot:
       executionPriceQuoteAtomsPerLot.toString(),
     sellLots: "100",
-    buyLots: "40",
   },
 };
 

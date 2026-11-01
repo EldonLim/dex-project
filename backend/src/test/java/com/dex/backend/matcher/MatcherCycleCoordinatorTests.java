@@ -52,8 +52,8 @@ class MatcherCycleCoordinatorTests {
                 DEPLOYMENT_ID,
                 ExecutionAttemptStatus.reservingStatuses()
         );
-        verify(projectionMatchService, never()).findNextProposal();
-        verify(preflightService, never()).check(proposal());
+        verify(projectionMatchService, never()).findNextBatch();
+        verify(preflightService, never()).check(batch());
     }
 
     @Test
@@ -69,25 +69,26 @@ class MatcherCycleCoordinatorTests {
                 coordinator().runCycle()
         );
 
-        verify(projectionMatchService, never()).findNextProposal();
+        verify(projectionMatchService, never()).findNextBatch();
     }
 
     @Test
     void noProposalReturnsIdleWithoutRpc() {
         readyWithoutReservation();
-        when(projectionMatchService.findNextProposal()).thenReturn(Optional.empty());
+        when(projectionMatchService.findNextBatch()).thenReturn(Optional.empty());
 
         assertEquals(MatcherCycleStatus.IDLE, coordinator().runCycle());
 
-        verify(preflightService, never()).check(proposal());
+        verify(preflightService, never()).check(batch());
     }
 
     @Test
     void failedPreflightMarksOnlyReportedOrdersTemporarilyIneligible() {
         MatchProposal proposal = proposal();
+        MatchBatch batch = MatchBatch.single(proposal);
         readyWithoutReservation();
-        when(projectionMatchService.findNextProposal()).thenReturn(Optional.of(proposal));
-        when(preflightService.check(proposal)).thenReturn(
+        when(projectionMatchService.findNextBatch()).thenReturn(Optional.of(batch));
+        when(preflightService.check(batch)).thenReturn(
                 MatchPreflightResult.ineligible(Set.of(proposal.sellOrderId()))
         );
 
@@ -101,7 +102,7 @@ class MatcherCycleCoordinatorTests {
                 proposal.sellOrderId()
         );
         verify(reservationService, never()).reserveIfCurrent(
-                proposal,
+                batch,
                 EXECUTOR
         );
     }
@@ -109,28 +110,30 @@ class MatcherCycleCoordinatorTests {
     @Test
     void successfulPreflightDelegatesAtomicReservation() {
         MatchProposal proposal = proposal();
+        MatchBatch batch = MatchBatch.single(proposal);
         readyWithoutReservation();
-        when(projectionMatchService.findNextProposal()).thenReturn(Optional.of(proposal));
-        when(preflightService.check(proposal)).thenReturn(
+        when(projectionMatchService.findNextBatch()).thenReturn(Optional.of(batch));
+        when(preflightService.check(batch)).thenReturn(
                 MatchPreflightResult.eligible(EXECUTOR)
         );
-        when(reservationService.reserveIfCurrent(proposal, EXECUTOR))
+        when(reservationService.reserveIfCurrent(batch, EXECUTOR))
                 .thenReturn(MatchReservationResult.RESERVED);
 
         assertEquals(MatcherCycleStatus.RESERVED, coordinator().runCycle());
 
-        verify(reservationService).reserveIfCurrent(proposal, EXECUTOR);
+        verify(reservationService).reserveIfCurrent(batch, EXECUTOR);
     }
 
     @Test
     void staleReservationRevalidationReturnsStaleCycle() {
         MatchProposal proposal = proposal();
+        MatchBatch batch = MatchBatch.single(proposal);
         readyWithoutReservation();
-        when(projectionMatchService.findNextProposal()).thenReturn(Optional.of(proposal));
-        when(preflightService.check(proposal)).thenReturn(
+        when(projectionMatchService.findNextBatch()).thenReturn(Optional.of(batch));
+        when(preflightService.check(batch)).thenReturn(
                 MatchPreflightResult.eligible(EXECUTOR)
         );
-        when(reservationService.reserveIfCurrent(proposal, EXECUTOR))
+        when(reservationService.reserveIfCurrent(batch, EXECUTOR))
                 .thenReturn(MatchReservationResult.STALE);
 
         assertEquals(MatcherCycleStatus.STALE, coordinator().runCycle());
@@ -165,6 +168,10 @@ class MatcherCycleCoordinatorTests {
                 BigInteger.valueOf(40),
                 BigInteger.valueOf(100)
         );
+    }
+
+    private static MatchBatch batch() {
+        return MatchBatch.single(proposal());
     }
 
     private static DexProperties properties() {

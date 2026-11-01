@@ -141,6 +141,11 @@ becomes filled, the sell keeps `2` lots remaining, and the contract atomically
 transfers 2 TKA to the buyer and 4 TKB to the seller. The UI then reads the
 confirmed result from Spring's PostgreSQL projection.
 
+The same workflow can combine up to 10 compatible matches from one market into
+one atomic settlement transaction. A large order can therefore fill against
+several counterparties at once; the trade history displays one row per match
+event even though those rows share one transaction hash.
+
 ## 9. Run automated verification
 
 Contracts:

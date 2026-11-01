@@ -3,6 +3,7 @@ package com.dex.backend.blockchain;
 import com.dex.backend.blockchain.event.DexEvent;
 import com.dex.backend.blockchain.execution.PreparedSettlement;
 import com.dex.backend.blockchain.execution.SettlementRequest;
+import com.dex.backend.blockchain.execution.SettlementBatchRequest;
 import com.dex.backend.blockchain.execution.TransactionObservation;
 import com.dex.backend.blockchain.model.BlockRange;
 import com.dex.backend.blockchain.model.BlockReference;
@@ -143,7 +144,11 @@ public interface BlockchainGateway {
      * @throws IllegalArgumentException if the request is invalid for this gateway
      * @throws BlockchainGatewayException if preparation or signing fails
      */
-    PreparedSettlement prepareSettlement(SettlementRequest request);
+    PreparedSettlement prepareSettlement(SettlementBatchRequest request);
+
+    default PreparedSettlement prepareSettlement(SettlementRequest request) {
+        return prepareSettlement(request.toBatchRequest());
+    }
 
     /**
      * Broadcasts an already prepared settlement transaction.

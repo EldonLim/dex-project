@@ -4,6 +4,7 @@ import com.dex.backend.config.DexProperties;
 import com.dex.backend.matcher.TemporaryOrderIneligibilityRegistry;
 import com.dex.backend.persistence.execution.ExecutionAttemptEntity;
 import com.dex.backend.persistence.execution.ExecutionAttemptRepository;
+import com.dex.backend.persistence.execution.ExecutionAttemptLegRepository;
 import com.dex.backend.persistence.execution.ExecutionAttemptStatus;
 import com.dex.backend.persistence.execution.ExecutionAttemptTransitionException;
 import com.dex.backend.persistence.indexer.IndexerCheckpointRepository;
@@ -25,6 +26,7 @@ public class SettlementReceiptResolutionService {
             "Settlement transaction reverted";
 
     private final ExecutionAttemptRepository attemptRepository;
+    private final ExecutionAttemptLegRepository legRepository;
     private final IndexerCheckpointRepository checkpointRepository;
     private final TemporaryOrderIneligibilityRegistry ineligibilityRegistry;
     private final String deploymentId;
@@ -33,12 +35,14 @@ public class SettlementReceiptResolutionService {
     @Autowired
     public SettlementReceiptResolutionService(
             ExecutionAttemptRepository attemptRepository,
+            ExecutionAttemptLegRepository legRepository,
             IndexerCheckpointRepository checkpointRepository,
             TemporaryOrderIneligibilityRegistry ineligibilityRegistry,
             DexProperties properties
     ) {
         this(
                 attemptRepository,
+                legRepository,
                 checkpointRepository,
                 ineligibilityRegistry,
                 properties.blockchain().deploymentId(),
@@ -48,6 +52,7 @@ public class SettlementReceiptResolutionService {
 
     SettlementReceiptResolutionService(
             ExecutionAttemptRepository attemptRepository,
+            ExecutionAttemptLegRepository legRepository,
             IndexerCheckpointRepository checkpointRepository,
             TemporaryOrderIneligibilityRegistry ineligibilityRegistry,
             String deploymentId,
@@ -56,6 +61,10 @@ public class SettlementReceiptResolutionService {
         this.attemptRepository = Objects.requireNonNull(
                 attemptRepository,
                 "attemptRepository must not be null"
+        );
+        this.legRepository = Objects.requireNonNull(
+                legRepository,
+                "legRepository must not be null"
         );
         this.checkpointRepository = Objects.requireNonNull(
                 checkpointRepository,
@@ -107,14 +116,24 @@ public class SettlementReceiptResolutionService {
             return SettlementReceiptResolution.WAITING;
         }
 
-        ineligibilityRegistry.markTemporarilyIneligible(
-                deploymentId,
-                attempt.getBuyOrderId()
-        );
-        ineligibilityRegistry.markTemporarilyIneligible(
-                deploymentId,
-                attempt.getSellOrderId()
-        );
+        var orderIds = new java.util.HashSet<BigInteger>();
+        for (var leg : legRepository.findByIdAttemptIdOrderByIdLegIndex(
+                attemptId
+        )) {
+            orderIds.add(leg.getBuyOrderId());
+            orderIds.add(leg.getSellOrderId());
+        }
+        if (orderIds.isEmpty()) {
+            throw new ExecutionAttemptTransitionException(
+                    "Execution attempt has no settlement legs"
+            );
+        }
+        for (BigInteger orderId : orderIds) {
+            ineligibilityRegistry.markTemporarilyIneligible(
+                    deploymentId,
+                    orderId
+            );
+        }
         attempt.markReverted(
                 normalizeRevertReason(revertReason),
                 clock.instant()

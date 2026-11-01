@@ -14,22 +14,29 @@ import java.util.Objects;
 public class IndexedTradeConfirmationService {
 
     private final ExecutionAttemptRepository repository;
+    private final ExecutionAttemptLegRepository legRepository;
     private final Clock clock;
 
     @Autowired
     public IndexedTradeConfirmationService(
-            ExecutionAttemptRepository repository
+            ExecutionAttemptRepository repository,
+            ExecutionAttemptLegRepository legRepository
     ) {
-        this(repository, Clock.systemUTC());
+        this(repository, legRepository, Clock.systemUTC());
     }
 
     IndexedTradeConfirmationService(
             ExecutionAttemptRepository repository,
+            ExecutionAttemptLegRepository legRepository,
             Clock clock
     ) {
         this.repository = Objects.requireNonNull(
                 repository,
                 "repository must not be null"
+        );
+        this.legRepository = Objects.requireNonNull(
+                legRepository,
+                "legRepository must not be null"
         );
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
@@ -42,7 +49,8 @@ public class IndexedTradeConfirmationService {
             BigInteger buyOrderId,
             BigInteger sellOrderId,
             BigInteger fillLots,
-            BigInteger executionPriceQuoteAtomsPerLot
+            BigInteger executionPriceQuoteAtomsPerLot,
+            BigInteger eventLogIndex
     ) {
         Objects.requireNonNull(deploymentId, "deploymentId must not be null");
         Objects.requireNonNull(
@@ -57,6 +65,7 @@ public class IndexedTradeConfirmationService {
                 executionPriceQuoteAtomsPerLot,
                 "executionPriceQuoteAtomsPerLot must not be null"
         );
+        Objects.requireNonNull(eventLogIndex, "eventLogIndex must not be null");
 
         var attempt = repository.findByTransactionHashForUpdate(
                 deploymentId,
@@ -68,20 +77,52 @@ public class IndexedTradeConfirmationService {
         }
 
         ExecutionAttemptEntity entity = attempt.orElseThrow();
+        var legs = legRepository.findByIdAttemptIdOrderByIdLegIndex(
+                entity.getAttemptId()
+        );
+        var matchingLeg = legs.stream()
+                .filter(leg -> !leg.isConfirmed())
+                .filter(leg -> leg.matches(
+                        marketId,
+                        buyOrderId,
+                        sellOrderId,
+                        fillLots,
+                        executionPriceQuoteAtomsPerLot
+                ))
+                .findFirst();
 
-        if (!entity.getMarketId().equals(marketId)
-                || !entity.getBuyOrderId().equals(buyOrderId)
-                || !entity.getSellOrderId().equals(sellOrderId)
-                || !entity.getFillLots().equals(fillLots)
-                || !entity.getExecutionPriceQuoteAtomsPerLot().equals(
-                executionPriceQuoteAtomsPerLot
-        )) {
+        if (matchingLeg.isEmpty()) {
             throw new ExecutionAttemptTransitionException(
                     "Indexed trade does not match its execution attempt"
             );
         }
 
-        entity.markConfirmed(clock.instant());
+        matchingLeg.orElseThrow().markConfirmed(eventLogIndex);
+        if (legs.stream().allMatch(ExecutionAttemptLegEntity::isConfirmed)) {
+            entity.markConfirmed(clock.instant());
+        }
         return true;
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean confirmMatchingAttempt(
+            String deploymentId,
+            Hash256 transactionHash,
+            BigInteger marketId,
+            BigInteger buyOrderId,
+            BigInteger sellOrderId,
+            BigInteger fillLots,
+            BigInteger executionPriceQuoteAtomsPerLot
+    ) {
+        return confirmMatchingAttempt(
+                deploymentId,
+                transactionHash,
+                marketId,
+                buyOrderId,
+                sellOrderId,
+                fillLots,
+                executionPriceQuoteAtomsPerLot,
+                BigInteger.ZERO
+        );
     }
 }

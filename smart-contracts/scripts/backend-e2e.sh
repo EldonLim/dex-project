@@ -69,11 +69,21 @@ trade_is_confirmed() {
     "http://127.0.0.1:${backend_port}/api/v1/markets/1/trades?limit=50")" || return 1
   node -e '
     const page = JSON.parse(process.argv[1]);
-    const trade = page.items?.[0];
-    process.exit(page.items?.length === 1
-      && trade.fillLots === "40"
-      && trade.buyOrderRemainingLots === "0"
-      && trade.sellOrderRemainingLots === "60" ? 0 : 1);
+    const trades = page.items ?? [];
+    const transactionHashes = new Set(trades.map((trade) => trade.transactionHash));
+    const logIndexes = new Set(
+      trades.map((trade) => trade.executionPosition?.logIndex),
+    );
+    const byFill = new Map(trades.map((trade) => [trade.fillLots, trade]));
+    process.exit(trades.length === 3
+      && transactionHashes.size === 1
+      && logIndexes.size === 3
+      && byFill.get("40")?.buyOrderRemainingLots === "0"
+      && byFill.get("40")?.sellOrderRemainingLots === "60"
+      && byFill.get("30")?.buyOrderRemainingLots === "0"
+      && byFill.get("30")?.sellOrderRemainingLots === "30"
+      && byFill.get("20")?.buyOrderRemainingLots === "0"
+      && byFill.get("20")?.sellOrderRemainingLots === "10" ? 0 : 1);
   ' "${response}"
 }
 
@@ -84,7 +94,7 @@ wait_for_trade() {
     fi
     sleep 1
   done
-  echo "Backend did not confirm the expected trade" >&2
+  echo "Backend did not confirm the expected three-leg batch" >&2
   return 1
 }
 
@@ -119,6 +129,7 @@ export DEX_INDEXER_POLL_INTERVAL=200ms
 export DEX_INDEXER_CONFIRMATION_DEPTH=0
 export DEX_MATCHER_ENABLED=true
 export DEX_MATCHER_POLL_INTERVAL=200ms
+export DEX_MATCHER_MAX_BATCH_LEGS=10
 export DEX_EXECUTOR_POLL_INTERVAL=200ms
 export SERVER_PORT="${backend_port}"
 

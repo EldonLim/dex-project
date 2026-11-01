@@ -37,6 +37,7 @@ and must remain ignored with owner-only permissions.
 - [x] Market getter name, arguments, and return schema
 - [x] Order getter name, arguments, and return schema
 - [x] `executeTrade` arguments, no return value, and unrestricted caller policy
+- [x] `executeTradeBatch` struct-array schema, 1–10 limit, and atomic rollback
 - [x] Order-placement event schema and indexed fields
 - [x] Order-cancellation event schema and indexed fields
 - [x] Trade event schema and indexed fields
@@ -76,7 +77,7 @@ Run this scenario together after the final artifacts are available:
 - [x] 4. Alice places a 100-lot sell order.
 - [x] 5. Bob places a compatible 40-lot buy order.
 - [x] 6. The backend indexes both orders.
-- [x] 7. The backend submits `executeTrade`.
+- [x] 7. The backend submits a one-leg `executeTradeBatch`.
 - [x] 8. The contract settles 40 lots.
 - [x] 9. The backend indexes the confirmed trade.
 - [x] 10. Alice has 60 lots remaining.

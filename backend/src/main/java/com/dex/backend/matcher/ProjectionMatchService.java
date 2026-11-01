@@ -4,7 +4,7 @@ import com.dex.backend.blockchain.model.ChainPosition;
 import com.dex.backend.config.DexProperties;
 import com.dex.backend.market.Market;
 import com.dex.backend.order.Order;
-import com.dex.backend.persistence.execution.ExecutionAttemptRepository;
+import com.dex.backend.persistence.execution.ExecutionAttemptLegRepository;
 import com.dex.backend.persistence.execution.ExecutionAttemptStatus;
 import com.dex.backend.persistence.execution.ReservedOrderPair;
 import com.dex.backend.persistence.market.MarketEntity;
@@ -28,29 +28,36 @@ public class ProjectionMatchService {
 
     private final MarketRepository marketRepository;
     private final OrderRepository orderRepository;
-    private final ExecutionAttemptRepository executionAttemptRepository;
+    private final ExecutionAttemptLegRepository executionAttemptLegRepository;
     private final OrderMatcher orderMatcher;
     private final TemporaryOrderIneligibilityRegistry ineligibilityRegistry;
     private final String deploymentId;
+    private final int maxBatchLegs;
 
     public ProjectionMatchService(
             MarketRepository marketRepository,
             OrderRepository orderRepository,
-            ExecutionAttemptRepository executionAttemptRepository,
+            ExecutionAttemptLegRepository executionAttemptLegRepository,
             OrderMatcher orderMatcher,
             TemporaryOrderIneligibilityRegistry ineligibilityRegistry,
             DexProperties properties
     ) {
         this.marketRepository = marketRepository;
         this.orderRepository = orderRepository;
-        this.executionAttemptRepository = executionAttemptRepository;
+        this.executionAttemptLegRepository = executionAttemptLegRepository;
         this.orderMatcher = orderMatcher;
         this.ineligibilityRegistry = ineligibilityRegistry;
         this.deploymentId = properties.blockchain().deploymentId();
+        this.maxBatchLegs = properties.matcher().maxBatchLegs();
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Optional<MatchProposal> findNextProposal() {
+        return findNextBatch().map(batch -> batch.legs().getFirst());
+    }
+
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Optional<MatchBatch> findNextBatch() {
         Set<BigInteger> excludedOrderIds = loadExcludedOrderIds();
         List<MarketEntity> markets = marketRepository
                 .findAllByDeploymentIdOrderByMarketId(deploymentId);
@@ -65,7 +72,11 @@ public class ProjectionMatchService {
                     marketEntity,
                     excludedOrderIds
             );
-            Optional<MatchProposal> proposal = orderMatcher.findNextMatch(market, orders);
+            Optional<MatchBatch> proposal = orderMatcher.findNextBatch(
+                    market,
+                    orders,
+                    maxBatchLegs
+            );
 
             if (proposal.isPresent()) {
                 return proposal;
@@ -80,7 +91,7 @@ public class ProjectionMatchService {
                 ineligibilityRegistry.activeOrderIds(deploymentId)
         );
 
-        for (ReservedOrderPair pair : executionAttemptRepository
+        for (ReservedOrderPair pair : executionAttemptLegRepository
                 .findReservedOrderPairs(
                         deploymentId,
                         ExecutionAttemptStatus.reservingStatuses()

@@ -2,6 +2,7 @@ package com.dex.backend.blockchain.ethereum;
 
 import com.dex.backend.blockchain.execution.PreparedSettlement;
 import com.dex.backend.blockchain.execution.SettlementRequest;
+import com.dex.backend.blockchain.execution.SettlementBatchRequest;
 import com.dex.backend.blockchain.model.EthereumAddress;
 import com.dex.backend.blockchain.model.Hash256;
 import org.web3j.abi.FunctionEncoder;
@@ -58,18 +59,17 @@ final class EthereumSettlementSigner {
         return executorAddress;
     }
 
-    String encodeSettlement(SettlementRequest request) {
+    String encodeSettlement(SettlementBatchRequest request) {
         Objects.requireNonNull(request, "request must not be null");
-        return FunctionEncoder.encode(EthereumDexAbi.executeTrade(
-                request.buyOrderId(),
-                request.sellOrderId(),
-                request.fillLots(),
-                request.executionPriceQuoteAtomsPerLot()
-        ));
+        return FunctionEncoder.encode(EthereumDexAbi.executeTradeBatch(request));
+    }
+
+    String encodeSettlement(SettlementRequest request) {
+        return encodeSettlement(request.toBatchRequest());
     }
 
     PreparedSettlement sign(
-            SettlementRequest request,
+            SettlementBatchRequest request,
             BigInteger nonce,
             BigInteger gasPrice,
             BigInteger gasLimit
@@ -108,6 +108,15 @@ final class EthereumSettlementSigner {
                     "Ethereum settlement signing failed"
             );
         }
+    }
+
+    PreparedSettlement sign(
+            SettlementRequest request,
+            BigInteger nonce,
+            BigInteger gasPrice,
+            BigInteger gasLimit
+    ) {
+        return sign(request.toBatchRequest(), nonce, gasPrice, gasLimit);
     }
 
     @Override

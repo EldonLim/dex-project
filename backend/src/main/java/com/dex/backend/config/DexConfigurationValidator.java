@@ -57,6 +57,11 @@ public class DexConfigurationValidator implements InitializingBean {
                         && !ineligibilityDuration.isNegative(),
                 "DEX_MATCHER_INELIGIBILITY_DURATION must be positive"
         );
+        require(
+                properties.matcher().maxBatchLegs() >= 1
+                        && properties.matcher().maxBatchLegs() <= 10,
+                "DEX_MATCHER_MAX_BATCH_LEGS must be between 1 and 10"
+        );
     }
 
     private void validateExecutor() {

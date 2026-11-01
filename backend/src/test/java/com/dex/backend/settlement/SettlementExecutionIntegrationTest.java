@@ -19,6 +19,8 @@ import com.dex.backend.order.Order;
 import com.dex.backend.persistence.deployment.ChainDeploymentEntity;
 import com.dex.backend.persistence.deployment.ChainDeploymentRepository;
 import com.dex.backend.persistence.execution.ExecutionAttemptEntity;
+import com.dex.backend.persistence.execution.ExecutionAttemptLegEntity;
+import com.dex.backend.persistence.execution.ExecutionAttemptLegRepository;
 import com.dex.backend.persistence.execution.ExecutionAttemptRepository;
 import com.dex.backend.persistence.execution.ExecutionAttemptStatus;
 import com.dex.backend.persistence.event.ProcessedEventRepository;
@@ -67,6 +69,9 @@ class SettlementExecutionIntegrationTest {
 
     @Autowired
     private ExecutionAttemptRepository attemptRepository;
+
+    @Autowired
+    private ExecutionAttemptLegRepository legRepository;
 
     @Autowired
     private TradeRepository tradeRepository;
@@ -123,23 +128,31 @@ class SettlementExecutionIntegrationTest {
         orderRepository.save(toEntity(MockBlockchainFixtures.BOB_BUY_ORDER));
         orderRepository.flush();
 
-        attemptRepository.saveAndFlush(ExecutionAttemptEntity.reserved(
-                UUID.randomUUID(),
-                new MatchProposal(
+        UUID attemptId = UUID.randomUUID();
+        MatchProposal proposal = new MatchProposal(
                         DEPLOYMENT_ID,
                         MockBlockchainFixtures.MARKET_ID,
                         MockBlockchainFixtures.BOB_ORDER_ID,
                         MockBlockchainFixtures.ALICE_ORDER_ID,
                         MockBlockchainFixtures.BOB_LOTS,
                         MockBlockchainFixtures.ALICE_LIMIT_PRICE
-                ),
+                );
+        attemptRepository.saveAndFlush(ExecutionAttemptEntity.reserved(
+                attemptId,
+                proposal,
                 MockBlockchainFixtures.EXECUTOR_ADDRESS,
                 Instant.now()
+        ));
+        legRepository.saveAndFlush(new ExecutionAttemptLegEntity(
+                attemptId,
+                0,
+                proposal
         ));
     }
 
     @AfterEach
     void clearProjectionAndReservations() {
+        legRepository.deleteAll();
         attemptRepository.deleteAll();
         tradeRepository.deleteAll();
         processedEventRepository.deleteAll();
@@ -159,6 +172,7 @@ class SettlementExecutionIntegrationTest {
         );
 
         ExecutionAttemptEntity attempt = attemptRepository.findAll().getFirst();
+        var request = batchRequest(attempt);
         OrderEntity buy = orderRepository.findById(new OrderEntityId(
                 DEPLOYMENT_ID,
                 MockBlockchainFixtures.BOB_ORDER_ID
@@ -175,7 +189,7 @@ class SettlementExecutionIntegrationTest {
                 ),
                 () -> assertEquals(BigInteger.ZERO, attempt.getExecutorNonce()),
                 () -> assertNotNull(attempt.getTransactionHash()),
-                () -> assertNotNull(attempt.toPreparedSettlement()),
+                () -> assertNotNull(attempt.toPreparedSettlement(request)),
                 () -> assertEquals(
                         TransactionStatus.NOT_FOUND,
                         gateway.getTransaction(attempt.getTransactionHash()).status()
@@ -235,7 +249,7 @@ class SettlementExecutionIntegrationTest {
                 coordinator.runCycle()
         );
         ExecutionAttemptEntity signed = attemptRepository.findAll().getFirst();
-        var prepared = signed.toPreparedSettlement();
+        var prepared = signed.toPreparedSettlement(batchRequest(signed));
 
         assertEquals(
                 prepared.transactionHash(),
@@ -265,7 +279,7 @@ class SettlementExecutionIntegrationTest {
                 ),
                 () -> assertEquals(
                         prepared,
-                        recovered.toPreparedSettlement()
+                        recovered.toPreparedSettlement(batchRequest(recovered))
                 ),
                 () -> assertEquals(
                         nonceAfterAcceptedBroadcast,
@@ -518,6 +532,21 @@ class SettlementExecutionIntegrationTest {
                 false,
                 null
         ));
+    }
+
+    private com.dex.backend.blockchain.execution.SettlementBatchRequest batchRequest(
+            ExecutionAttemptEntity attempt
+    ) {
+        var legs = legRepository.findByIdAttemptIdOrderByIdLegIndex(
+                attempt.getAttemptId()
+        );
+        return new com.dex.backend.blockchain.execution.SettlementBatchRequest(
+                attempt.getDeploymentId(),
+                legs.getFirst().getMarketId(),
+                legs.stream()
+                        .map(ExecutionAttemptLegEntity::toSettlementLeg)
+                        .toList()
+        );
     }
 
     private static OrderEntity toEntity(Order order) {

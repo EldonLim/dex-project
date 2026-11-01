@@ -10,6 +10,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigInteger;
 import java.util.List;
+import com.dex.backend.blockchain.execution.SettlementBatchRequest;
+import com.dex.backend.blockchain.execution.SettlementLeg;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -78,6 +80,25 @@ class EthereumDexAbiCompatibilityTests {
                 .containsExactly("uint256", "uint256", "uint256", "uint256");
         assertThat(signature(orderBook, "function", "executeTrade"))
                 .isEqualTo("executeTrade(uint256,uint256,uint256,uint256)");
+        assertThat(inputTypes(orderBook, "function", "executeTradeBatch"))
+                .containsExactly("tuple[]");
+        assertThat(tupleInputTypes(orderBook, "executeTradeBatch"))
+                .containsExactly("uint256", "uint256", "uint256", "uint256");
+
+        SettlementBatchRequest request = new SettlementBatchRequest(
+                "abi-test",
+                BigInteger.ONE,
+                List.of(new SettlementLeg(
+                        BigInteger.TEN,
+                        BigInteger.valueOf(11),
+                        BigInteger.valueOf(40),
+                        BigInteger.valueOf(100)
+                ))
+        );
+        assertThat(FunctionEncoder.encode(EthereumDexAbi.executeTradeBatch(request)))
+                .startsWith(selector(
+                        "executeTradeBatch((uint256,uint256,uint256,uint256)[])"
+                ));
     }
 
     private JsonNode artifact(String name) throws IOException {
@@ -126,6 +147,16 @@ class EthereumDexAbiCompatibilityTests {
     private List<String> tupleOutputTypes(JsonNode artifact, String name) {
         return entry(artifact, "function", name)
                 .path("outputs")
+                .get(0)
+                .path("components")
+                .valueStream()
+                .map(node -> node.path("type").asText())
+                .toList();
+    }
+
+    private List<String> tupleInputTypes(JsonNode artifact, String name) {
+        return entry(artifact, "function", name)
+                .path("inputs")
                 .get(0)
                 .path("components")
                 .valueStream()

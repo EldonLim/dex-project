@@ -49,14 +49,13 @@ public class MatcherCycleCoordinator {
             return MatcherCycleStatus.ALREADY_RESERVED;
         }
 
-        Optional<MatchProposal> proposal =
-                projectionMatchService.findNextProposal();
+        Optional<MatchBatch> proposal = projectionMatchService.findNextBatch();
 
         if (proposal.isEmpty()) {
             return MatcherCycleStatus.IDLE;
         }
 
-        MatchProposal candidate = proposal.orElseThrow();
+        MatchBatch candidate = proposal.orElseThrow();
         MatchPreflightResult preflight = preflightService.check(candidate);
 
         if (!preflight.eligible()) {

@@ -1,7 +1,7 @@
 package com.dex.backend.persistence.execution;
 
 import com.dex.backend.blockchain.execution.PreparedSettlement;
-import com.dex.backend.blockchain.execution.SettlementRequest;
+import com.dex.backend.blockchain.execution.SettlementBatchRequest;
 import com.dex.backend.blockchain.model.EthereumAddress;
 
 import java.util.Objects;
@@ -10,7 +10,7 @@ import java.util.UUID;
 public record ExecutionAttemptWorkItem(
         UUID attemptId,
         ExecutionAttemptStatus status,
-        SettlementRequest request,
+        SettlementBatchRequest request,
         EthereumAddress executorAddress,
         PreparedSettlement preparedSettlement
 ) {

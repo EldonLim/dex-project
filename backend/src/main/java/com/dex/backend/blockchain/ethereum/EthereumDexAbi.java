@@ -5,6 +5,7 @@ import org.web3j.abi.datatypes.Address;
 import org.web3j.abi.datatypes.Bool;
 import org.web3j.abi.datatypes.Event;
 import org.web3j.abi.datatypes.Function;
+import org.web3j.abi.datatypes.DynamicArray;
 import org.web3j.abi.datatypes.StaticStruct;
 import org.web3j.abi.datatypes.Utf8String;
 import org.web3j.abi.datatypes.generated.Uint256;
@@ -12,6 +13,7 @@ import org.web3j.abi.datatypes.generated.Uint8;
 
 import java.math.BigInteger;
 import java.util.List;
+import com.dex.backend.blockchain.execution.SettlementBatchRequest;
 
 /**
  * Web3j definitions matching the checked-in MarketRegistry and OrderBook ABIs.
@@ -103,6 +105,25 @@ final class EthereumDexAbi {
         );
     }
 
+    static Function executeTradeBatch(SettlementBatchRequest request) {
+        List<TradeExecutionStruct> executions = request.legs().stream()
+                .map(leg -> new TradeExecutionStruct(
+                        new Uint256(leg.buyOrderId()),
+                        new Uint256(leg.sellOrderId()),
+                        new Uint256(leg.fillLots()),
+                        new Uint256(leg.executionPriceQuoteAtomsPerLot())
+                ))
+                .toList();
+        return new Function(
+                "executeTradeBatch",
+                List.of(new DynamicArray<>(
+                        TradeExecutionStruct.class,
+                        executions
+                )),
+                List.of()
+        );
+    }
+
     static Function tokenSymbol() {
         return new Function(
                 "symbol",
@@ -164,6 +185,26 @@ final class EthereumDexAbi {
             this.remainingLots = remainingLots;
             this.limitPrice = limitPrice;
             this.status = status;
+        }
+    }
+
+    static final class TradeExecutionStruct extends StaticStruct {
+        final Uint256 buyOrderId;
+        final Uint256 sellOrderId;
+        final Uint256 fillLots;
+        final Uint256 executionPrice;
+
+        TradeExecutionStruct(
+                Uint256 buyOrderId,
+                Uint256 sellOrderId,
+                Uint256 fillLots,
+                Uint256 executionPrice
+        ) {
+            super(buyOrderId, sellOrderId, fillLots, executionPrice);
+            this.buyOrderId = buyOrderId;
+            this.sellOrderId = sellOrderId;
+            this.fillLots = fillLots;
+            this.executionPrice = executionPrice;
         }
     }
 }

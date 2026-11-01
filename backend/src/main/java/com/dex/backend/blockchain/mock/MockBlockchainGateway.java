@@ -7,7 +7,8 @@ import com.dex.backend.blockchain.event.EventMetadata;
 import com.dex.backend.blockchain.event.MarketRegisteredEvent;
 import com.dex.backend.blockchain.event.OrderPlacedEvent;
 import com.dex.backend.blockchain.execution.PreparedSettlement;
-import com.dex.backend.blockchain.execution.SettlementRequest;
+import com.dex.backend.blockchain.execution.SettlementBatchRequest;
+import com.dex.backend.blockchain.execution.SettlementLeg;
 import com.dex.backend.blockchain.execution.TransactionObservation;
 import com.dex.backend.blockchain.model.BlockRange;
 import com.dex.backend.blockchain.model.BlockReference;
@@ -195,10 +196,10 @@ public final class MockBlockchainGateway implements BlockchainGateway {
 
     @Override
     public synchronized PreparedSettlement prepareSettlement(
-            SettlementRequest request
+            SettlementBatchRequest request
     ) {
         requireArgument(request, "request");
-        validateSettlement(request);
+        validateSettlement(request, orders);
 
         BigInteger sequence = nextTransactionSequence;
         Hash256 transactionHash = MockBlockchainFixtures.hash(sequence);
@@ -280,12 +281,73 @@ public final class MockBlockchainGateway implements BlockchainGateway {
             Hash256 transactionHash
     ) {
         PreparedSettlement prepared = requirePendingSettlement(transactionHash);
-        SettlementRequest request = prepared.request();
+        SettlementBatchRequest request = prepared.request();
 
-        ValidatedSettlement settlement;
+        Map<TokenBalanceKey, BigInteger> updatedBalances =
+                new HashMap<>(balances);
+        Map<TokenAllowanceKey, BigInteger> updatedAllowances =
+                new HashMap<>(allowances);
+        Map<BigInteger, OrderSnapshot> updatedOrders = new HashMap<>(orders);
+        List<StagedTrade> stagedTrades = new ArrayList<>();
+        EthereumAddress spender = chainIdentity.dexAddress();
 
         try {
-            settlement = validateSettlement(request);
+            for (SettlementLeg leg : request.legs()) {
+                ValidatedSettlement settlement = validateLeg(
+                        request,
+                        leg,
+                        updatedOrders
+                );
+                MarketSnapshot market = settlement.market();
+                OrderSnapshot buy = settlement.buy();
+                OrderSnapshot sell = settlement.sell();
+                BigInteger baseAmount = leg.fillLots()
+                        .multiply(market.baseLotSizeAtoms());
+                BigInteger quoteAmount = leg.fillLots()
+                        .multiply(leg.executionPriceQuoteAtomsPerLot());
+
+                stageTransfer(
+                        updatedBalances,
+                        updatedAllowances,
+                        market.baseTokenAddress(),
+                        sell.owner(),
+                        buy.owner(),
+                        spender,
+                        baseAmount
+                );
+                stageTransfer(
+                        updatedBalances,
+                        updatedAllowances,
+                        market.quoteTokenAddress(),
+                        buy.owner(),
+                        sell.owner(),
+                        spender,
+                        quoteAmount
+                );
+
+                updatedOrders.put(
+                        buy.orderId(),
+                        orderAfterFill(
+                                buy,
+                                buy.remainingLots().subtract(leg.fillLots())
+                        )
+                );
+                updatedOrders.put(
+                        sell.orderId(),
+                        orderAfterFill(
+                                sell,
+                                sell.remainingLots().subtract(leg.fillLots())
+                        )
+                );
+                stagedTrades.add(new StagedTrade(
+                        market,
+                        buy,
+                        sell,
+                        leg,
+                        baseAmount,
+                        quoteAmount
+                ));
+            }
         } catch (IllegalArgumentException exception) {
             throw new BlockchainGatewayException(
                     "Pending mock settlement no longer satisfies settlement rules",
@@ -294,81 +356,38 @@ public final class MockBlockchainGateway implements BlockchainGateway {
             );
         }
 
-        MarketSnapshot market = settlement.market();
-        OrderSnapshot buy = settlement.buy();
-        OrderSnapshot sell = settlement.sell();
-
-        BigInteger executionPrice =
-                request.executionPriceQuoteAtomsPerLot();
-
-        BigInteger fill = request.fillLots();
-
-        BigInteger baseAmount = fill.multiply(market.baseLotSizeAtoms());
-        BigInteger quoteAmount = fill.multiply(executionPrice);
-
-        // Stage ledger changes in independent maps.
-        Map<TokenBalanceKey, BigInteger> updatedBalances =
-                new HashMap<>(balances);
-
-        Map<TokenAllowanceKey, BigInteger> updatedAllowances =
-                new HashMap<>(allowances);
-
-        EthereumAddress spender = chainIdentity.dexAddress();
-
-        stageTransfer(
-                updatedBalances,
-                updatedAllowances,
-                market.baseTokenAddress(),
-                sell.owner(),
-                buy.owner(),
-                spender,
-                baseAmount
-        );
-
-        stageTransfer(
-                updatedBalances,
-                updatedAllowances,
-                market.quoteTokenAddress(),
-                buy.owner(),
-                sell.owner(),
-                spender,
-                quoteAmount
-        );
-
-        OrderSnapshot updatedBuy =
-                orderAfterFill(buy, buy.remainingLots().subtract(fill));
-
-        OrderSnapshot updatedSell =
-                orderAfterFill(sell, sell.remainingLots().subtract(fill));
-
         BlockReference block = nextBlock();
-
-        EventMetadata metadata = new EventMetadata(
-                chainIdentity.deploymentId(),
-                chainIdentity.dexAddress(),
-                transactionHash,
-                block.hash(),
-                new ChainPosition(
-                        block.number(),
-                        BigInteger.ZERO,
-                        BigInteger.ZERO
-                ),
-                block.timestamp()
-        );
-
-        TradeExecutedEvent event = new TradeExecutedEvent(
-                metadata,
-                nextTradeId,
-                request.marketId(),
-                buy.orderId(),
-                sell.orderId(),
-                fill,
-                executionPrice,
-                buy.owner(),
-                sell.owner(),
-                baseAmount,
-                quoteAmount
-        );
+        List<TradeExecutedEvent> batchEvents = new ArrayList<>();
+        BigInteger tradeId = nextTradeId;
+        for (int index = 0; index < stagedTrades.size(); index++) {
+            StagedTrade trade = stagedTrades.get(index);
+            EventMetadata metadata = new EventMetadata(
+                    chainIdentity.deploymentId(),
+                    chainIdentity.dexAddress(),
+                    transactionHash,
+                    block.hash(),
+                    new ChainPosition(
+                            block.number(),
+                            BigInteger.ZERO,
+                            BigInteger.valueOf(index)
+                    ),
+                    block.timestamp()
+            );
+            batchEvents.add(new TradeExecutedEvent(
+                    metadata,
+                    tradeId,
+                    request.marketId(),
+                    trade.buy().orderId(),
+                    trade.sell().orderId(),
+                    trade.leg().fillLots(),
+                    trade.leg().executionPriceQuoteAtomsPerLot(),
+                    trade.buy().owner(),
+                    trade.sell().owner(),
+                    trade.baseAmount(),
+                    trade.quoteAmount()
+            ));
+            tradeId = tradeId.add(BigInteger.ONE);
+        }
 
         TransactionObservation observation = TransactionObservation.succeeded(
                 transactionHash,
@@ -382,15 +401,13 @@ public final class MockBlockchainGateway implements BlockchainGateway {
 
         allowances.clear();
         allowances.putAll(updatedAllowances);
-
-        orders.put(updatedBuy.orderId(), updatedBuy);
-        orders.put(updatedSell.orderId(), updatedSell);
+        orders.clear();
+        orders.putAll(updatedOrders);
 
         blocks.put(block.number(), block);
-        events.add(event);
+        events.addAll(batchEvents);
         transactions.put(transactionHash, observation);
-
-        nextTradeId = nextTradeId.add(BigInteger.ONE);
+        nextTradeId = tradeId;
 
         return block;
     }
@@ -435,6 +452,48 @@ public final class MockBlockchainGateway implements BlockchainGateway {
         }
 
         orders.put(replacement.orderId(), replacement);
+    }
+
+    public synchronized void addOrderSnapshot(OrderSnapshot order) {
+        requireArgument(order, "order");
+        requireDeployment(order.deploymentId());
+        if (!markets.containsKey(order.marketId())) {
+            throw new IllegalArgumentException(
+                    "Mock order market must exist"
+            );
+        }
+        if (orders.putIfAbsent(order.orderId(), order) != null) {
+            throw new IllegalArgumentException(
+                    "Mock order ID must be unique"
+            );
+        }
+    }
+
+    public synchronized void setTokenBalance(
+            EthereumAddress token,
+            EthereumAddress owner,
+            BigInteger amount
+    ) {
+        requireArgument(token, "token");
+        requireArgument(owner, "owner");
+        requireNonNegative(amount, "amount");
+        balances.put(new TokenBalanceKey(token, owner), amount);
+    }
+
+    public synchronized void setTokenAllowance(
+            EthereumAddress token,
+            EthereumAddress owner,
+            EthereumAddress spender,
+            BigInteger amount
+    ) {
+        requireArgument(token, "token");
+        requireArgument(owner, "owner");
+        requireArgument(spender, "spender");
+        requireNonNegative(amount, "amount");
+        allowances.put(
+                new TokenAllowanceKey(token, owner, spender),
+                amount
+        );
     }
 
     private void initializeMarket(String deploymentId) {
@@ -579,12 +638,40 @@ public final class MockBlockchainGateway implements BlockchainGateway {
         );
     }
 
-    private ValidatedSettlement validateSettlement(SettlementRequest request) {
+    private void validateSettlement(
+            SettlementBatchRequest request,
+            Map<BigInteger, OrderSnapshot> orderState
+    ) {
         requireDeployment(request.deploymentId());
+        Map<BigInteger, OrderSnapshot> simulated = new HashMap<>(orderState);
+        for (SettlementLeg leg : request.legs()) {
+            ValidatedSettlement settlement = validateLeg(request, leg, simulated);
+            simulated.put(
+                    settlement.buy().orderId(),
+                    orderAfterFill(
+                            settlement.buy(),
+                            settlement.buy().remainingLots().subtract(leg.fillLots())
+                    )
+            );
+            simulated.put(
+                    settlement.sell().orderId(),
+                    orderAfterFill(
+                            settlement.sell(),
+                            settlement.sell().remainingLots().subtract(leg.fillLots())
+                    )
+            );
+        }
+    }
+
+    private ValidatedSettlement validateLeg(
+            SettlementBatchRequest request,
+            SettlementLeg leg,
+            Map<BigInteger, OrderSnapshot> orderState
+    ) {
 
         MarketSnapshot market = markets.get(request.marketId());
-        OrderSnapshot buy = orders.get(request.buyOrderId());
-        OrderSnapshot sell = orders.get(request.sellOrderId());
+        OrderSnapshot buy = orderState.get(leg.buyOrderId());
+        OrderSnapshot sell = orderState.get(leg.sellOrderId());
 
         if (market == null) {
             throw new IllegalArgumentException("Requested market does not exist");
@@ -624,17 +711,17 @@ public final class MockBlockchainGateway implements BlockchainGateway {
             );
         }
 
-        if (request.executionPriceQuoteAtomsPerLot()
+        if (leg.executionPriceQuoteAtomsPerLot()
                 .compareTo(sell.limitPriceQuoteAtomsPerLot()) < 0
-                || request.executionPriceQuoteAtomsPerLot()
+                || leg.executionPriceQuoteAtomsPerLot()
                 .compareTo(buy.limitPriceQuoteAtomsPerLot()) > 0) {
             throw new IllegalArgumentException(
                     "Execution price must satisfy both order limits"
             );
         }
 
-        if (request.fillLots().compareTo(buy.remainingLots()) > 0
-                || request.fillLots().compareTo(sell.remainingLots()) > 0) {
+        if (leg.fillLots().compareTo(buy.remainingLots()) > 0
+                || leg.fillLots().compareTo(sell.remainingLots()) > 0) {
             throw new IllegalArgumentException(
                     "Fill quantity must not exceed either order's remaining quantity"
             );
@@ -766,6 +853,16 @@ public final class MockBlockchainGateway implements BlockchainGateway {
             MarketSnapshot market,
             OrderSnapshot buy,
             OrderSnapshot sell
+    ) {
+    }
+
+    private record StagedTrade(
+            MarketSnapshot market,
+            OrderSnapshot buy,
+            OrderSnapshot sell,
+            SettlementLeg leg,
+            BigInteger baseAmount,
+            BigInteger quoteAmount
     ) {
     }
 

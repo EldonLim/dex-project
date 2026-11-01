@@ -30,8 +30,14 @@ class ExecutionAttemptReadServiceTests {
 
     private final ExecutionAttemptRepository repository =
             mock(ExecutionAttemptRepository.class);
+    private final ExecutionAttemptLegRepository legRepository =
+            mock(ExecutionAttemptLegRepository.class);
     private final ExecutionAttemptReadService service =
-            new ExecutionAttemptReadService(repository, properties());
+            new ExecutionAttemptReadService(
+                    repository,
+                    legRepository,
+                    properties()
+            );
 
     @Test
     void emptyDeploymentHasNoWork() {
@@ -50,11 +56,18 @@ class ExecutionAttemptReadServiceTests {
                 DEPLOYMENT_ID,
                 ExecutionAttemptStatus.reservingStatuses()
         )).thenReturn(List.of(attempt));
+        when(legRepository.findByIdAttemptIdOrderByIdLegIndex(
+                attempt.getAttemptId()
+        )).thenReturn(List.of(new ExecutionAttemptLegEntity(
+                attempt.getAttemptId(),
+                0,
+                proposal()
+        )));
 
         ExecutionAttemptWorkItem reserved = service.findUnresolvedAttempt()
                 .orElseThrow();
         assertEquals(ExecutionAttemptStatus.RESERVED, reserved.status());
-        assertEquals(request(), reserved.request());
+        assertEquals(request().toBatchRequest(), reserved.request());
         assertTrue(reserved.preparedSettlement() == null);
 
         PreparedSettlement prepared = prepared();

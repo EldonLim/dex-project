@@ -90,6 +90,9 @@ UNION ALL
 SELECT 'execution_attempts', COUNT(*)
 FROM execution_attempts WHERE deployment_id = :'deployment_id'
 UNION ALL
+SELECT 'execution_attempt_legs', COUNT(*)
+FROM execution_attempt_legs WHERE deployment_id = :'deployment_id'
+UNION ALL
 SELECT 'processed_events', COUNT(*)
 FROM processed_events WHERE deployment_id = :'deployment_id'
 UNION ALL
@@ -223,6 +226,9 @@ to the deployment being removed. If anything is unexpected, run `ROLLBACK` and
 stop. Only after confirming the row should you run:
 
 ```sql
+
+DELETE FROM execution_attempt_legs
+WHERE deployment_id = :'deployment_id';
 
 DELETE FROM execution_attempts
 WHERE deployment_id = :'deployment_id';
