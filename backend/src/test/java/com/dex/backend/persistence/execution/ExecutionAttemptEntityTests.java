@@ -46,11 +46,12 @@ class ExecutionAttemptEntityTests {
                 ),
                 () -> assertEquals(
                         prepared,
-                        attempt.toPreparedSettlement()
+                        attempt.toPreparedSettlement(prepared.request())
                 ),
                 () -> assertEquals(
                         BigInteger.valueOf(100),
-                        attempt.getExecutionPriceQuoteAtomsPerLot()
+                        prepared.request().legs().getFirst()
+                                .executionPriceQuoteAtomsPerLot()
                 ),
                 () -> assertEquals(
                         RESERVED_AT.plusSeconds(2),
@@ -156,7 +157,11 @@ class ExecutionAttemptEntityTests {
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> attempt.markSigned(wrong, at(1))
+                () -> attempt.markSigned(
+                        wrong,
+                        prepared(BigInteger.ZERO).request(),
+                        at(1)
+                )
         );
         assertThrows(
                 IllegalArgumentException.class,

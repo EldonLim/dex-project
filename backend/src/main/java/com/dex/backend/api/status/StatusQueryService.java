@@ -74,7 +74,8 @@ public class StatusQueryService {
                 toIndexerResponse(checkpoint, indexerStatus, paused),
                 new MatcherStatusResponse(
                         properties.matcher().enabled(),
-                        matcherStatus
+                        matcherStatus,
+                        properties.matcher().maxBatchLegs()
                 ),
                 new ExecutorStatusResponse(
                         properties.matcher().enabled(),

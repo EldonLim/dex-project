@@ -57,7 +57,7 @@ function Header(props: {
   );
 }
 
-function MarketHeader(props: { markets: Market[]; market: Market | null; onChange: (id: bigint) => void }) {
+function MarketHeader(props: { markets: Market[]; market: Market | null; maxBatchLegs?: number; onChange: (id: bigint) => void }) {
   return (
     <section className="market-header">
       <div>
@@ -82,6 +82,7 @@ function MarketHeader(props: { markets: Market[]; market: Market | null; onChang
         <div className="market-facts">
           <div><span>LOT SIZE</span><strong>{formatAmount(props.market.baseLotAtoms, props.market.baseToken.decimals)} {props.market.baseToken.symbol}</strong></div>
           <div><span>SETTLEMENT</span><strong>Wallet to wallet</strong></div>
+          <div><span>ATOMIC BATCH</span><strong>Up to {props.maxBatchLegs ?? 10} matches</strong></div>
           <div><span>FEES</span><strong>0.00%</strong></div>
         </div>
       )}
@@ -224,18 +225,29 @@ function OrdersTable(props: {
 
 function TradesTable(props: { trades: Trade[]; market: Market; hasMore: boolean; loadingMore: boolean; loadMore: () => void }) {
   const { trades, market } = props;
+  const batchSizes = new Map<string, number>();
+  const batchPositions = new Map<string, number>();
+  for (const trade of trades) {
+    batchSizes.set(trade.transactionHash, (batchSizes.get(trade.transactionHash) ?? 0) + 1);
+  }
   return (
     <section className="panel table-panel trades-panel" id="recent-trades">
       <div className="panel-heading"><div><p className="eyebrow">SETTLED ON-CHAIN</p><h2>Recent trades</h2></div><span className="count-badge">{trades.length}</span></div>
-      <div className="table-scroll"><table><thead><tr><th>Block</th><th>Orders</th><th>Price</th><th>Amount</th><th>Total</th><th>Transaction</th></tr></thead><tbody>
-        {trades.length === 0 && <EmptyRow text="No confirmed trades for this market." columns={6} />}
-        {trades.map((trade) => <tr key={`${trade.transactionHash}-${trade.logIndex}`}>
-          <td className="mono">{trade.blockNumber.toString()}</td><td>#{trade.buyOrderId.toString()} ↔ #{trade.sellOrderId.toString()}</td>
-          <td className="trade-price">{formatPrice(trade.executionPrice, market)} <small>{market.quoteToken.symbol}</small></td>
-          <td><span className="quantity-value">{formatAmount(trade.baseAtoms, market.baseToken.decimals)}</span> <small>{market.baseToken.symbol}</small></td>
-          <td>{formatAmount(trade.quoteAtoms, market.quoteToken.decimals)} <small>{market.quoteToken.symbol}</small></td>
-          <td><a className="tx-link" href={config.explorerUrl ? `${config.explorerUrl}/tx/${trade.transactionHash}` : `#tx-${trade.transactionHash}`} title={trade.transactionHash} onClick={!config.explorerUrl ? (event) => event.preventDefault() : undefined}>{shortAddress(trade.transactionHash, 8)}{config.explorerUrl && <ExternalLink size={12} />}</a></td>
-        </tr>)}
+      <div className="table-scroll"><table><thead><tr><th>Block</th><th>Orders</th><th>Price</th><th>Amount</th><th>Total</th><th>Settlement</th><th>Transaction</th></tr></thead><tbody>
+        {trades.length === 0 && <EmptyRow text="No confirmed trades for this market." columns={7} />}
+        {trades.map((trade) => {
+          const batchSize = batchSizes.get(trade.transactionHash) ?? 1;
+          const batchPosition = (batchPositions.get(trade.transactionHash) ?? 0) + 1;
+          batchPositions.set(trade.transactionHash, batchPosition);
+          return <tr key={`${trade.transactionHash}-${trade.logIndex}`}>
+            <td className="mono">{trade.blockNumber.toString()}</td><td>#{trade.buyOrderId.toString()} ↔ #{trade.sellOrderId.toString()}</td>
+            <td className="trade-price">{formatPrice(trade.executionPrice, market)} <small>{market.quoteToken.symbol}</small></td>
+            <td><span className="quantity-value">{formatAmount(trade.baseAtoms, market.baseToken.decimals)}</span> <small>{market.baseToken.symbol}</small></td>
+            <td>{formatAmount(trade.quoteAtoms, market.quoteToken.decimals)} <small>{market.quoteToken.symbol}</small></td>
+            <td><span className={`batch-label ${batchSize > 1 ? "batched" : "single"}`}>{batchSize > 1 ? `Batch ${batchPosition}/${batchSize}` : "Single"}</span></td>
+            <td><a className="tx-link" href={config.explorerUrl ? `${config.explorerUrl}/tx/${trade.transactionHash}` : `#tx-${trade.transactionHash}`} title={trade.transactionHash} onClick={!config.explorerUrl ? (event) => event.preventDefault() : undefined}>{shortAddress(trade.transactionHash, 8)}{config.explorerUrl && <ExternalLink size={12} />}</a></td>
+          </tr>;
+        })}
       </tbody></table></div>
       {props.hasMore && <button className="button table-more" onClick={props.loadMore} disabled={props.loadingMore}>{props.loadingMore ? "Loading…" : "Load more trades"}</button>}
     </section>
@@ -249,7 +261,7 @@ function ServiceStrip(props: { backend: BackendHealth; lastUpdated: number | nul
     <div className={`service-state ${state}`}>
       {props.backend.online ? <Activity size={16} /> : <CircleOff size={16} />}
       <span><strong>Java backend {props.backend.online ? (props.backend.operationalStatus ?? "online") : "offline"}</strong><small>{props.backend.identityError ?? (props.backend.online
-        ? `Indexer ${props.backend.indexerState ?? "?"} · Matcher ${props.backend.matcherState ?? "?"} · Executor ${props.backend.executorState ?? "?"} · Block ${props.backend.indexedBlock?.toString() ?? "—"}`
+        ? `Indexer ${props.backend.indexerState ?? "?"} · Matcher ${props.backend.matcherState ?? "?"} · Batch ≤${props.backend.maxBatchLegs ?? 10} · Executor ${props.backend.executorState ?? "?"} · Block ${props.backend.indexedBlock?.toString() ?? "—"}`
         : "Automatic matching is unavailable; wallet assets remain safe.")}</small></span>
     </div>
     <div className="refresh-state"><Clock3 size={15} /> {props.lastUpdated ? `Projection refreshed ${new Date(props.lastUpdated).toLocaleTimeString()}` : "Not refreshed"}<button className="icon-button" onClick={props.refresh} disabled={props.loading} aria-label="Refresh backend data"><RefreshCw size={15} className={props.loading ? "spin" : ""} /></button></div>
@@ -315,7 +327,7 @@ export default function App() {
     <Header account={dex.account} chainId={dex.chainId} connecting={dex.connecting} wrongNetwork={dex.wrongNetwork} walletAvailable={dex.walletAvailable} connect={() => void dex.connect()} disconnect={dex.disconnect} switchNetwork={() => void dex.switchNetwork()} />
     <main>
       {dex.loadError && <div className="error-banner"><AlertTriangle size={17} /><span>{dex.loadError}</span></div>}
-      <MarketHeader markets={dex.markets} market={dex.selectedMarket} onChange={dex.setSelectedMarketId} />
+      <MarketHeader markets={dex.markets} market={dex.selectedMarket} maxBatchLegs={dex.backend.maxBatchLegs} onChange={dex.setSelectedMarketId} />
       <ServiceStrip backend={dex.backend} lastUpdated={dex.lastUpdated} loading={dex.loading} refresh={() => void dex.refresh()} />
       {dex.loading && dex.markets.length === 0 ? <div className="loading-card"><LoaderCircle className="spin" />Reading the confirmed backend projection…</div> : dex.selectedMarket ? <>
         <div className="trading-grid">

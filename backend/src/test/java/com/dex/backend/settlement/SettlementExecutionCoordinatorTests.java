@@ -3,6 +3,7 @@ package com.dex.backend.settlement;
 import com.dex.backend.blockchain.BlockchainGateway;
 import com.dex.backend.blockchain.BlockchainGatewayException;
 import com.dex.backend.blockchain.execution.PreparedSettlement;
+import com.dex.backend.blockchain.execution.SettlementBatchRequest;
 import com.dex.backend.blockchain.execution.SettlementRequest;
 import com.dex.backend.blockchain.execution.TransactionObservation;
 import com.dex.backend.blockchain.model.BlockReference;
@@ -34,14 +35,14 @@ class SettlementExecutionCoordinatorTests {
 
     private static final UUID ATTEMPT_ID = UUID.randomUUID();
     private static final EthereumAddress EXECUTOR = address(999);
-    private static final SettlementRequest REQUEST = new SettlementRequest(
+    private static final SettlementBatchRequest REQUEST = new SettlementRequest(
             "settlement-test",
             BigInteger.ONE,
             BigInteger.TEN,
             BigInteger.valueOf(20),
             BigInteger.valueOf(5),
             BigInteger.valueOf(100)
-    );
+    ).toBatchRequest();
     private static final PreparedSettlement PREPARED = prepared(
             REQUEST,
             EXECUTOR
@@ -394,14 +395,14 @@ class SettlementExecutionCoordinatorTests {
     void preparedSettlementMustExactlyMatchTheReservation() {
         useWorkItem(ExecutionAttemptStatus.RESERVED);
         when(gateway.getExecutorAddress()).thenReturn(EXECUTOR);
-        SettlementRequest wrongRequest = new SettlementRequest(
+        SettlementBatchRequest wrongRequest = new SettlementRequest(
                 REQUEST.deploymentId(),
                 REQUEST.marketId(),
-                REQUEST.buyOrderId(),
+                REQUEST.legs().getFirst().buyOrderId(),
                 BigInteger.valueOf(21),
-                REQUEST.fillLots(),
-                REQUEST.executionPriceQuoteAtomsPerLot()
-        );
+                REQUEST.legs().getFirst().fillLots(),
+                REQUEST.legs().getFirst().executionPriceQuoteAtomsPerLot()
+        ).toBatchRequest();
         when(gateway.prepareSettlement(REQUEST)).thenReturn(
                 prepared(wrongRequest, EXECUTOR)
         );
@@ -428,7 +429,7 @@ class SettlementExecutionCoordinatorTests {
     }
 
     private static PreparedSettlement prepared(
-            SettlementRequest request,
+            SettlementBatchRequest request,
             EthereumAddress executor
     ) {
         return new PreparedSettlement(

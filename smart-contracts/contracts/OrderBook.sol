@@ -27,6 +27,8 @@ interface IMarketRegistry {
 contract OrderBook is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    uint256 public constant MAX_BATCH_LEGS = 10;
+
     enum Side {
         BUY,
         SELL
@@ -47,6 +49,13 @@ contract OrderBook is Ownable, ReentrancyGuard {
         uint256 remainingLots;
         uint256 limitPrice;
         Status status;
+    }
+
+    struct TradeExecution {
+        uint256 buyOrderId;
+        uint256 sellOrderId;
+        uint256 fillLots;
+        uint256 executionPrice;
     }
 
     IMarketRegistry public immutable marketRegistry;
@@ -152,6 +161,40 @@ contract OrderBook is Ownable, ReentrancyGuard {
         uint256 fillLots,
         uint256 executionPrice
     ) external nonReentrant {
+        _executeTrade(
+            buyOrderId,
+            sellOrderId,
+            fillLots,
+            executionPrice
+        );
+    }
+
+    function executeTradeBatch(
+        TradeExecution[] calldata executions
+    ) external nonReentrant {
+        require(executions.length > 0, "Batch must not be empty");
+        require(
+            executions.length <= MAX_BATCH_LEGS,
+            "Batch exceeds maximum legs"
+        );
+
+        for (uint256 index = 0; index < executions.length; index++) {
+            TradeExecution calldata execution = executions[index];
+            _executeTrade(
+                execution.buyOrderId,
+                execution.sellOrderId,
+                execution.fillLots,
+                execution.executionPrice
+            );
+        }
+    }
+
+    function _executeTrade(
+        uint256 buyOrderId,
+        uint256 sellOrderId,
+        uint256 fillLots,
+        uint256 executionPrice
+    ) internal {
         Order storage buyOrder = orders[buyOrderId];
         Order storage sellOrder = orders[sellOrderId];
 

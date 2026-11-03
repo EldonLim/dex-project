@@ -3,7 +3,8 @@ package com.dex.backend.persistence.execution;
 import com.dex.backend.blockchain.model.EthereumAddress;
 import com.dex.backend.blockchain.model.Hash256;
 import com.dex.backend.blockchain.execution.PreparedSettlement;
-import com.dex.backend.blockchain.execution.SettlementRequest;
+import com.dex.backend.blockchain.execution.SettlementBatchRequest;
+import com.dex.backend.matcher.MatchBatch;
 import com.dex.backend.matcher.MatchProposal;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -30,27 +31,6 @@ public class ExecutionAttemptEntity {
 
     @Column(name = "deployment_id", length = 128, nullable = false, updatable = false)
     private String deploymentId;
-
-    @Column(name = "market_id", precision = 78, scale = 0, nullable = false, updatable = false)
-    private BigInteger marketId;
-
-    @Column(name = "buy_order_id", precision = 78, scale = 0, nullable = false, updatable = false)
-    private BigInteger buyOrderId;
-
-    @Column(name = "sell_order_id", precision = 78, scale = 0, nullable = false, updatable = false)
-    private BigInteger sellOrderId;
-
-    @Column(name = "fill_lots", precision = 78, scale = 0, nullable = false, updatable = false)
-    private BigInteger fillLots;
-
-    @Column(
-            name = "execution_price_quote_atoms_per_lot",
-            precision = 78,
-            scale = 0,
-            nullable = false,
-            updatable = false
-    )
-    private BigInteger executionPriceQuoteAtomsPerLot;
 
     @Column(name = "executor_address", length = 42, nullable = false, updatable = false)
     private EthereumAddress executorAddress;
@@ -94,7 +74,7 @@ public class ExecutionAttemptEntity {
 
     private ExecutionAttemptEntity(
             UUID attemptId,
-            MatchProposal proposal,
+            MatchBatch proposal,
             EthereumAddress executorAddress,
             Instant createdAt
     ) {
@@ -104,12 +84,6 @@ public class ExecutionAttemptEntity {
         );
         Objects.requireNonNull(proposal, "proposal must not be null");
         this.deploymentId = proposal.deploymentId();
-        this.marketId = proposal.marketId();
-        this.buyOrderId = proposal.buyOrderId();
-        this.sellOrderId = proposal.sellOrderId();
-        this.fillLots = proposal.fillLots();
-        this.executionPriceQuoteAtomsPerLot =
-                proposal.executionPriceQuoteAtomsPerLot();
         this.executorAddress = Objects.requireNonNull(
                 executorAddress,
                 "executorAddress must not be null"
@@ -124,7 +98,7 @@ public class ExecutionAttemptEntity {
 
     public static ExecutionAttemptEntity reserved(
             UUID attemptId,
-            MatchProposal proposal,
+            MatchBatch proposal,
             EthereumAddress executorAddress,
             Instant createdAt
     ) {
@@ -136,15 +110,30 @@ public class ExecutionAttemptEntity {
         );
     }
 
+    public static ExecutionAttemptEntity reserved(
+            UUID attemptId,
+            MatchProposal proposal,
+            EthereumAddress executorAddress,
+            Instant createdAt
+    ) {
+        return reserved(
+                attemptId,
+                MatchBatch.single(proposal),
+                executorAddress,
+                createdAt
+        );
+    }
+
     public void markSigned(
             PreparedSettlement preparedSettlement,
+            SettlementBatchRequest expectedRequest,
             Instant occurredAt
     ) {
         Objects.requireNonNull(
                 preparedSettlement,
                 "preparedSettlement must not be null"
         );
-        requirePreparedSettlementMatches(preparedSettlement);
+        requirePreparedSettlementMatches(preparedSettlement, expectedRequest);
         requireTimestamp(occurredAt);
         requireTransition(ExecutionAttemptStatus.SIGNED);
 
@@ -154,6 +143,17 @@ public class ExecutionAttemptEntity {
         status = ExecutionAttemptStatus.SIGNED;
         updatedAt = occurredAt;
         clearFailureDetails();
+    }
+
+    public void markSigned(
+            PreparedSettlement preparedSettlement,
+            Instant occurredAt
+    ) {
+        markSigned(
+                preparedSettlement,
+                preparedSettlement.request(),
+                occurredAt
+        );
     }
 
     public void markSubmitted(Instant occurredAt) {
@@ -252,18 +252,13 @@ public class ExecutionAttemptEntity {
     }
 
     private void requirePreparedSettlementMatches(
-            PreparedSettlement preparedSettlement
+            PreparedSettlement preparedSettlement,
+            SettlementBatchRequest expectedRequest
     ) {
-        SettlementRequest request = preparedSettlement.request();
+        SettlementBatchRequest request = preparedSettlement.request();
 
         if (!deploymentId.equals(request.deploymentId())
-                || !marketId.equals(request.marketId())
-                || !buyOrderId.equals(request.buyOrderId())
-                || !sellOrderId.equals(request.sellOrderId())
-                || !fillLots.equals(request.fillLots())
-                || !executionPriceQuoteAtomsPerLot.equals(
-                request.executionPriceQuoteAtomsPerLot()
-        )
+                || !request.equals(expectedRequest)
                 || !executorAddress.equals(
                         preparedSettlement.executorAddress()
                 )) {
@@ -303,26 +298,17 @@ public class ExecutionAttemptEntity {
         }
     }
 
-    public PreparedSettlement toPreparedSettlement() {
+    public PreparedSettlement toPreparedSettlement(
+            SettlementBatchRequest request
+    ) {
         requireTransactionIdentity();
 
         return new PreparedSettlement(
-                toSettlementRequest(),
+                request,
                 executorAddress,
                 executorNonce,
                 transactionHash,
                 signedTransactionHex
-        );
-    }
-
-    public SettlementRequest toSettlementRequest() {
-        return new SettlementRequest(
-                deploymentId,
-                marketId,
-                buyOrderId,
-                sellOrderId,
-                fillLots,
-                executionPriceQuoteAtomsPerLot
         );
     }
 
@@ -365,26 +351,6 @@ public class ExecutionAttemptEntity {
 
     public String getDeploymentId() {
         return deploymentId;
-    }
-
-    public BigInteger getMarketId() {
-        return marketId;
-    }
-
-    public BigInteger getBuyOrderId() {
-        return buyOrderId;
-    }
-
-    public BigInteger getSellOrderId() {
-        return sellOrderId;
-    }
-
-    public BigInteger getFillLots() {
-        return fillLots;
-    }
-
-    public BigInteger getExecutionPriceQuoteAtomsPerLot() {
-        return executionPriceQuoteAtomsPerLot;
     }
 
     public EthereumAddress getExecutorAddress() {

@@ -15,4 +15,6 @@ commands and MetaMask test flow.
 
 The live path is self-custodial: users sign approvals and orders in MetaMask;
 Spring indexes confirmed events, serves the read API, selects compatible
-orders, and calls the contract's atomic `executeTrade` settlement function.
+orders, and calls the contract's atomic `executeTradeBatch` settlement
+function. One transaction may settle up to 10 compatible matches from the same
+market, while the original single-trade contract function remains available.

@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
 import java.util.Optional;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -229,6 +230,57 @@ class MatchPreflightServiceTests {
                         BlockchainGatewayException.class,
                         () -> service.check(proposal())
                 )
+        );
+    }
+
+    @Test
+    void batchPreflightAggregatesCumulativeFillsAndParticipantFunding() {
+        BigInteger secondBuyId = BigInteger.valueOf(12);
+        when(gateway.getOrder(secondBuyId)).thenReturn(Optional.of(order(
+                secondBuyId,
+                BUYER,
+                OrderSide.BUY,
+                BigInteger.valueOf(110),
+                BigInteger.valueOf(30)
+        )));
+        when(gateway.getOrder(SELL_ID)).thenReturn(Optional.of(order(
+                SELL_ID,
+                SELLER,
+                OrderSide.SELL,
+                BigInteger.valueOf(90),
+                BigInteger.valueOf(70)
+        )));
+        MatchBatch batch = new MatchBatch(
+                DEPLOYMENT_ID,
+                MARKET_ID,
+                List.of(
+                        proposal(),
+                        new MatchProposal(
+                                DEPLOYMENT_ID,
+                                MARKET_ID,
+                                secondBuyId,
+                                SELL_ID,
+                                BigInteger.valueOf(30),
+                                EXECUTION_PRICE
+                        )
+                )
+        );
+        BigInteger totalBase = BigInteger.valueOf(70).multiply(LOT_SIZE);
+        BigInteger totalQuote = BigInteger.valueOf(70).multiply(EXECUTION_PRICE);
+        when(gateway.getTokenBalance(BASE_TOKEN, SELLER)).thenReturn(totalBase);
+        when(gateway.getTokenAllowance(BASE_TOKEN, SELLER, DEX))
+                .thenReturn(totalBase);
+        when(gateway.getTokenBalance(QUOTE_TOKEN, BUYER)).thenReturn(totalQuote);
+        when(gateway.getTokenAllowance(QUOTE_TOKEN, BUYER, DEX))
+                .thenReturn(totalQuote);
+
+        assertTrue(service.check(batch).eligible());
+
+        when(gateway.getTokenAllowance(QUOTE_TOKEN, BUYER, DEX))
+                .thenReturn(totalQuote.subtract(BigInteger.ONE));
+        assertEquals(
+                Set.of(BUY_ID, secondBuyId),
+                service.check(batch).ineligibleOrderIds()
         );
     }
 

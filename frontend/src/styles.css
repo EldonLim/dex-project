@@ -130,6 +130,9 @@ td small, .muted { font-size: 11px; }
 .text-button { font-size: 12px; padding: 7px; border-radius: 7px; }
 .text-button:hover { background: #ffffff08; }
 .tx-link { font-family: inherit; font-size: 11px; }
+.batch-label { display:inline-flex;align-items:center;padding:5px 8px;border:1px solid #ffffff14;border-radius:7px;font-size:10px;font-weight:650;white-space:nowrap; }
+.batch-label.single { color:var(--muted);background:#ffffff05; }
+.batch-label.batched { color:var(--amber);background:#e4bd7b0c;border-color:#e4bd7b30; }
 .listing-panel { margin-top: 20px; }
 .listing-toggle { padding: 23px 24px; text-align: left; }
 .listing-toggle > span { gap: 13px; }
@@ -203,6 +206,7 @@ footer .brand-mark { width: 32px; height: 32px; }
 :root { --blue: #8dbbff; --violet: #c5a6ff; }
 .market-header .eyebrow, .market-facts > div:first-child strong { color: var(--blue); }
 .market-facts > div:nth-child(2) strong { color: var(--violet); }
+.market-facts > div:nth-child(3) strong { color: var(--amber); }
 .market-facts > div:last-child strong { color: var(--green); }
 .order-type { color: var(--violet); border-color: #c5a6ff30; background: #c5a6ff0c; }
 .input-shell b, .quantity-value { color: var(--blue); }

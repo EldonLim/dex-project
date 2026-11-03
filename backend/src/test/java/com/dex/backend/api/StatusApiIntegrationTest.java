@@ -18,6 +18,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.jdbc.Sql;
+import org.springframework.test.context.jdbc.SqlConfig;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigInteger;
@@ -37,6 +39,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
+@Sql(
+        scripts = "/reset-database.sql",
+        executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD,
+        config = @SqlConfig(transactionMode = SqlConfig.TransactionMode.ISOLATED)
+)
 class StatusApiIntegrationTest {
 
     private static final String DEPLOYMENT_ID = "integration-test";
@@ -97,6 +104,7 @@ class StatusApiIntegrationTest {
                 .andExpect(jsonPath("$.indexer.paused", is(false)))
                 .andExpect(jsonPath("$.matcher.enabled", is(false)))
                 .andExpect(jsonPath("$.matcher.state", is("DISABLED")))
+                .andExpect(jsonPath("$.matcher.maxBatchLegs", is(10)))
                 .andExpect(jsonPath("$.executor.enabled", is(false)))
                 .andExpect(jsonPath("$.executor.state", is("DISABLED")));
     }

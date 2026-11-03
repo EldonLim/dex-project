@@ -284,7 +284,9 @@ export class BackendApiClient {
         ? undefined
         : decimal(indexer.lastIndexedBlockNumber, "last indexed block"),
       indexerState: string(indexer.state, "indexer state"),
+      matcherEnabled: boolean(matcher.enabled, "matcher enabled flag"),
       matcherState: string(matcher.state, "matcher state"),
+      maxBatchLegs: number(matcher.maxBatchLegs, "matcher maximum batch legs"),
       executorState: string(executor.state, "executor state"),
       checkedAt: Date.now(),
     };

@@ -222,7 +222,8 @@ public class EventProjectionService {
                     event.buyOrderId(),
                     event.sellOrderId(),
                     event.fillLots(),
-                    event.executionPriceQuoteAtomsPerLot()
+                    event.executionPriceQuoteAtomsPerLot(),
+                    metadata.position().logIndex()
             );
         } catch (ExecutionAttemptTransitionException
                  | IllegalArgumentException exception) {

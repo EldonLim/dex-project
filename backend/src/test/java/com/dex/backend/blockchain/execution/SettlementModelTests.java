@@ -170,7 +170,7 @@ class SettlementModelTests {
         assertEquals(ZERO, prepared.nonce());
         assertEquals(TX_HASH, prepared.transactionHash());
         assertEquals(EXECUTOR, prepared.executorAddress());
-        assertEquals(request(), prepared.request());
+        assertEquals(request().toBatchRequest(), prepared.request());
     }
 
     @Test
@@ -217,7 +217,11 @@ class SettlementModelTests {
                 () -> assertThrows(
                         NullPointerException.class,
                         () -> new PreparedSettlement(
-                                null, EXECUTOR, ZERO, TX_HASH, "0xab"
+                                (SettlementBatchRequest) null,
+                                EXECUTOR,
+                                ZERO,
+                                TX_HASH,
+                                "0xab"
                         )
                 ),
                 () -> assertThrows(

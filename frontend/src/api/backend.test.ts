@@ -125,7 +125,7 @@ describe("BackendApiClient", () => {
         deploymentBlockHash: hash("c"),
       },
       indexer: { state: "UP_TO_DATE", lastIndexedBlockNumber: "90071992547409930000" },
-      matcher: { state: "IDLE" },
+      matcher: { enabled: true, state: "IDLE", maxBatchLegs: 10 },
       executor: { state: "IDLE" },
     });
     const status = await new BackendApiClient(baseUrl).status();
@@ -136,6 +136,8 @@ describe("BackendApiClient", () => {
       marketRegistryAddress: address("5"),
     };
     expect(status.indexedBlock).toBe(90071992547409930000n);
+    expect(status.matcherEnabled).toBe(true);
+    expect(status.maxBatchLegs).toBe(10);
     expect(deploymentIdentityError(status, expected)).toBeUndefined();
     expect(deploymentIdentityError(status, { ...expected, dexAddress: address("6") })).toMatch(/OrderBook/);
   });
@@ -154,7 +156,7 @@ describe("BackendApiClient", () => {
         deploymentBlockHash: hash("c"),
       },
       indexer: { state: "PAUSED", lastIndexedBlockNumber: null },
-      matcher: { state: "HALTED" },
+      matcher: { enabled: true, state: "HALTED", maxBatchLegs: 4 },
       executor: { state: "IDLE" },
     });
 
@@ -164,6 +166,7 @@ describe("BackendApiClient", () => {
       operationalStatus: "DEGRADED",
       indexerState: "PAUSED",
       matcherState: "HALTED",
+      maxBatchLegs: 4,
       executorState: "IDLE",
     });
     expect(status.indexedBlock).toBeUndefined();

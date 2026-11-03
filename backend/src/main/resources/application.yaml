@@ -35,6 +35,7 @@ dex:
     enabled: ${DEX_MATCHER_ENABLED:false}
     poll-interval: ${DEX_MATCHER_POLL_INTERVAL:2s}
     ineligibility-duration: ${DEX_MATCHER_INELIGIBILITY_DURATION:30s}
+    max-batch-legs: ${DEX_MATCHER_MAX_BATCH_LEGS:10}
 
   executor:
     private-key: ${DEX_EXECUTOR_PRIVATE_KEY:}

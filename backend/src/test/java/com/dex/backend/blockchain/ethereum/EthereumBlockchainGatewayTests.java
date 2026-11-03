@@ -59,7 +59,7 @@ class EthereumBlockchainGatewayTests {
 
         PreparedSettlement prepared = gateway.prepareSettlement(REQUEST);
 
-        assertThat(prepared.request()).isEqualTo(REQUEST);
+        assertThat(prepared.request()).isEqualTo(REQUEST.toBatchRequest());
         assertThat(prepared.executorAddress()).isEqualTo(EXECUTOR);
         assertThat(prepared.nonce()).isEqualTo(BigInteger.valueOf(9));
         assertThat(TransactionDecoder.decode(

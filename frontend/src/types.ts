@@ -79,7 +79,9 @@ export interface BackendHealth {
   marketRegistryAddress?: string;
   indexedBlock?: bigint;
   indexerState?: string;
+  matcherEnabled?: boolean;
   matcherState?: string;
+  maxBatchLegs?: number;
   executorState?: string;
   identityError?: string;
   checkedAt: number;

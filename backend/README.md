@@ -151,6 +151,7 @@ syntax such as `200ms`, `2s`, or `1m`.
 | `DEX_MATCHER_ENABLED` | `false` | Enables both matching and settlement execution. |
 | `DEX_MATCHER_POLL_INTERVAL` | `2s` | Positive matcher fixed delay. |
 | `DEX_MATCHER_INELIGIBILITY_DURATION` | `30s` | Positive in-memory cooldown after stale or underfunded preflight. |
+| `DEX_MATCHER_MAX_BATCH_LEGS` | `10` | Maximum matches combined into one atomic transaction; range 1–10. |
 | `DEX_EXECUTOR_PRIVATE_KEY` | empty | Executor key; required only for enabled Ethereum matching. |
 | `DEX_EXECUTOR_POLL_INTERVAL` | `2s` | Positive settlement-executor fixed delay. |
 | `DEX_CORS_ORIGINS` | `http://localhost:5173` | Comma-separated exact frontend origins for `/api/v1/**`. |
@@ -165,8 +166,8 @@ Addresses must be lowercase `0x` values. CORS entries may contain only an
 HTTP(S) scheme, host, and optional port—no wildcard, path, query, credentials,
 or fragment.
 
-Match discovery excludes both orders referenced by unresolved execution
-attempts. The operational matcher can preflight and durably reserve one match,
+Match discovery excludes every order referenced by unresolved execution
+attempts. The operational matcher can preflight and durably reserve one batch,
 and the settlement executor can durably sign, broadcast, and reconcile that
 reservation. Successful settlements become confirmed only when the indexer
 atomically applies their trade events; confirmed reverts release their
@@ -194,7 +195,7 @@ read from the ERC-20 contracts at the market event's block.
 
 The complete Ethereum `BlockchainGateway` is registered only when mode is
 explicitly `ETHEREUM`. It composes the RPC and ABI clients, estimates gas,
-encodes the exact four-argument `executeTrade` call, and signs a legacy EIP-155
+encodes the exact `executeTradeBatch` struct-array call, and signs a legacy EIP-155
 transaction using the configured chain ID and executor. Read-only indexing can
 start without executor credentials; Ethereum matching requires a configured
 private key. The adapter never returns placeholder data and never silently
@@ -232,11 +233,18 @@ Matching is disabled by default. When `DEX_MATCHER_ENABLED=true`, the matcher
 runs with the fixed delay configured by `DEX_MATCHER_POLL_INTERVAL` (two seconds
 by default). It waits until the configured deployment is registered and the
 indexer has an unpaused, error-free checkpoint with no confirmation-eligible
-lag. Each invocation examines at most one proposal and overlapping invocations
+lag. Each invocation examines at most one batch and overlapping invocations
 are skipped.
 
-Before reserving a proposal, the matcher reloads the market and both orders from
-the blockchain adapter. It then checks current balances and allowances using:
+The matcher repeatedly applies price/time priority using virtual remaining
+quantities, without mutating projections. A batch contains one market and up to
+`DEX_MATCHER_MAX_BATCH_LEGS` legs (10 by default); one large order may therefore
+match several counterparties. Older-order pricing and same-owner avoidance are
+applied independently to every leg.
+
+Before reserving a batch, the matcher reloads its market and every unique order
+from the blockchain adapter. It simulates cumulative fills and aggregates
+balances and allowances by owner and token using:
 
 ```text
 seller base required = fillLots × baseLotSizeAtoms
@@ -248,7 +256,7 @@ boundary. An order with stale state or insufficient funding is temporarily
 excluded for `DEX_MATCHER_INELIGIBILITY_DURATION` (30 seconds by default). The
 cooldown is advisory, remains in memory only, and resets on restart.
 
-A valid proposal is rechecked against one serializable database snapshot before
+A valid batch is rechecked against one serializable database snapshot before
 a `RESERVED` execution attempt is inserted. Only one unresolved attempt is
 allowed for the configured deployment. `RESERVED`, `SIGNED`, `SUBMITTED`, and
 `UNCERTAIN` attempts remain unresolved; the matcher performs no more proposal or
@@ -269,7 +277,7 @@ allows a later process to recover the identical transaction after a restart;
 the database and its backups must therefore be treated as sensitive.
 
 In Ethereum mode, preparation obtains the executor's pending nonce and the
-node's gas price, estimates the exact `executeTrade` call, adds a bounded gas
+node's gas price, estimates the exact `executeTradeBatch` call, adds a bounded gas
 margin, and signs once with EIP-155 replay protection. The durable payload—not
 a newly generated replacement—is used for every later broadcast or recovery.
 
@@ -277,7 +285,7 @@ An existing `SIGNED` attempt is reconstructed from its durable fields and is
 never signed again. The executor broadcasts that exact payload and records the
 attempt as `SUBMITTED` only when the gateway returns the persisted transaction
 hash. If the broadcast outcome is unclear, the attempt becomes `UNCERTAIN` and
-continues reserving both orders.
+continues reserving every participating order.
 
 An `UNCERTAIN` attempt is reconciled using its known transaction hash. A visible
 pending, successful, or reverted transaction becomes `SUBMITTED`; a transaction
@@ -290,16 +298,18 @@ same durable payload can be reconciled and, when safe, rebroadcast. Mined block
 identity is rechecked before a terminal outcome is accepted.
 
 A successful receipt does not release its reservation. The indexer correlates
-the transaction hash with the local attempt and, in the same database
-transaction, updates both order projections, inserts the trade, records the
-processed event, marks the attempt `CONFIRMED`, and advances the checkpoint. A
-conflicting event rolls back the entire batch and pauses indexing. If the
-checkpoint passes a successful receipt block without the expected trade event,
-the executor halts for operator investigation.
+each `TradeExecuted` log with one expected child leg using the transaction hash
+and complete leg identity. Each log updates orders and inserts a separate trade;
+the attempt becomes `CONFIRMED` only after every expected leg has been observed.
+Leg observations, projection changes, processed-event markers, attempt state,
+and checkpoint advancement share the indexing transaction. An unexpected,
+duplicate, or conflicting leg rolls everything back and pauses indexing. If the
+checkpoint passes a successful receipt block without all expected events, the
+executor halts for operator investigation.
 
 A reverted receipt becomes terminal only after the indexer checkpoint has
 processed through its block, which applies the configured confirmation-depth
-policy. Both referenced orders then receive the existing in-memory cooldown
+policy. Every unique order referenced by the reverted batch then receives the existing in-memory cooldown
 before the attempt becomes `REVERTED`; projected orders and trades remain
 unchanged. The bounded revert reason is internal and is never included in the
 status API.
@@ -560,7 +570,8 @@ status as a liveness response.
   },
   "matcher": {
     "enabled": false,
-    "state": "DISABLED"
+    "state": "DISABLED",
+    "maxBatchLegs": 10
   },
   "executor": {
     "enabled": false,

@@ -9,7 +9,9 @@ import com.dex.backend.order.OrderSide;
 import org.springframework.stereotype.Service;
 
 import java.math.BigInteger;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -22,7 +24,7 @@ public class MatchPreflightService {
         this.gateway = gateway;
     }
 
-    public MatchPreflightResult check(MatchProposal proposal) {
+    public MatchPreflightResult check(MatchBatch proposal) {
         ChainIdentity identity = gateway.getChainIdentity();
         requireDeployment(proposal, identity);
 
@@ -41,81 +43,94 @@ public class MatchPreflightService {
             return bothOrdersIneligible(proposal);
         }
 
-        Optional<OrderSnapshot> buyResult = gateway.getOrder(
-                proposal.buyOrderId()
-        );
-        Optional<OrderSnapshot> sellResult = gateway.getOrder(
-                proposal.sellOrderId()
-        );
+        Map<BigInteger, OrderSnapshot> orders = new HashMap<>();
         Set<BigInteger> ineligibleOrderIds = new HashSet<>();
+        Set<BigInteger> orderIds = allOrderIds(proposal);
 
-        buyResult.ifPresentOrElse(
-                buy -> validateOrder(
-                        proposal,
-                        buy,
-                        OrderSide.BUY,
-                        ineligibleOrderIds
-                ),
-                () -> ineligibleOrderIds.add(proposal.buyOrderId())
-        );
-        sellResult.ifPresentOrElse(
-                sell -> validateOrder(
-                        proposal,
-                        sell,
-                        OrderSide.SELL,
-                        ineligibleOrderIds
-                ),
-                () -> ineligibleOrderIds.add(proposal.sellOrderId())
-        );
+        for (BigInteger orderId : orderIds) {
+            Optional<OrderSnapshot> result = gateway.getOrder(orderId);
+            if (result.isEmpty()) {
+                ineligibleOrderIds.add(orderId);
+            } else {
+                OrderSnapshot order = result.orElseThrow();
+                if (!proposal.deploymentId().equals(order.deploymentId())
+                        || !orderId.equals(order.orderId())) {
+                    throw new MatcherSafetyException(
+                            "Blockchain gateway returned an order with unexpected identity"
+                    );
+                }
+                orders.put(orderId, order);
+            }
+        }
 
         if (!ineligibleOrderIds.isEmpty()) {
             return MatchPreflightResult.ineligible(ineligibleOrderIds);
         }
 
-        OrderSnapshot buy = buyResult.orElseThrow();
-        OrderSnapshot sell = sellResult.orElseThrow();
+        Map<BigInteger, BigInteger> cumulativeFills = new HashMap<>();
+        Map<FundingKey, BigInteger> fundingRequired = new HashMap<>();
+        Map<FundingKey, Set<BigInteger>> fundingOrders = new HashMap<>();
 
-        if (buy.limitPriceQuoteAtomsPerLot().compareTo(
-                sell.limitPriceQuoteAtomsPerLot()
-        ) < 0) {
-            return bothOrdersIneligible(proposal);
-        }
+        for (MatchProposal leg : proposal.legs()) {
+            OrderSnapshot buy = orders.get(leg.buyOrderId());
+            OrderSnapshot sell = orders.get(leg.sellOrderId());
+            validateOrder(leg, buy, OrderSide.BUY, ineligibleOrderIds);
+            validateOrder(leg, sell, OrderSide.SELL, ineligibleOrderIds);
+            accumulateFill(leg.buyOrderId(), leg.fillLots(), buy, cumulativeFills, ineligibleOrderIds);
+            accumulateFill(leg.sellOrderId(), leg.fillLots(), sell, cumulativeFills, ineligibleOrderIds);
 
-        if (proposal.executionPriceQuoteAtomsPerLot().compareTo(
-                sell.limitPriceQuoteAtomsPerLot()
-        ) < 0 || proposal.executionPriceQuoteAtomsPerLot().compareTo(
-                buy.limitPriceQuoteAtomsPerLot()
-        ) > 0) {
-            throw new MatcherSafetyException(
-                    "Proposed execution price is outside the crossed price range"
+            if (buy.limitPriceQuoteAtomsPerLot().compareTo(
+                    sell.limitPriceQuoteAtomsPerLot()
+            ) < 0) {
+                ineligibleOrderIds.add(leg.buyOrderId());
+                ineligibleOrderIds.add(leg.sellOrderId());
+                continue;
+            }
+            if (leg.executionPriceQuoteAtomsPerLot().compareTo(
+                    sell.limitPriceQuoteAtomsPerLot()
+            ) < 0 || leg.executionPriceQuoteAtomsPerLot().compareTo(
+                    buy.limitPriceQuoteAtomsPerLot()
+            ) > 0) {
+                throw new MatcherSafetyException(
+                        "Proposed execution price is outside the crossed price range"
+                );
+            }
+
+            addFunding(
+                    new FundingKey(market.baseTokenAddress(), sell.owner()),
+                    leg.fillLots().multiply(market.baseLotSizeAtoms()),
+                    leg.sellOrderId(),
+                    fundingRequired,
+                    fundingOrders
+            );
+            addFunding(
+                    new FundingKey(market.quoteTokenAddress(), buy.owner()),
+                    leg.fillLots().multiply(leg.executionPriceQuoteAtomsPerLot()),
+                    leg.buyOrderId(),
+                    fundingRequired,
+                    fundingOrders
             );
         }
 
-        BigInteger sellerBaseRequired = proposal.fillLots()
-                .multiply(market.baseLotSizeAtoms());
-        BigInteger buyerQuoteRequired = proposal.fillLots()
-                .multiply(proposal.executionPriceQuoteAtomsPerLot());
-
-        checkFunding(
-                market.baseTokenAddress(),
-                sell,
-                identity.dexAddress(),
-                sellerBaseRequired,
-                ineligibleOrderIds
-        );
-        checkFunding(
-                market.quoteTokenAddress(),
-                buy,
-                identity.dexAddress(),
-                buyerQuoteRequired,
-                ineligibleOrderIds
-        );
+        for (Map.Entry<FundingKey, BigInteger> entry : fundingRequired.entrySet()) {
+            checkFunding(
+                    entry.getKey(),
+                    identity.dexAddress(),
+                    entry.getValue(),
+                    fundingOrders.get(entry.getKey()),
+                    ineligibleOrderIds
+            );
+        }
 
         if (!ineligibleOrderIds.isEmpty()) {
             return MatchPreflightResult.ineligible(ineligibleOrderIds);
         }
 
         return MatchPreflightResult.eligible(gateway.getExecutorAddress());
+    }
+
+    public MatchPreflightResult check(MatchProposal proposal) {
+        return check(MatchBatch.single(proposal));
     }
 
     private void validateOrder(
@@ -128,43 +143,35 @@ public class MatchPreflightService {
                 ? proposal.buyOrderId()
                 : proposal.sellOrderId();
 
-        if (!proposal.deploymentId().equals(order.deploymentId())
-                || !expectedOrderId.equals(order.orderId())) {
-            throw new MatcherSafetyException(
-                    "Blockchain gateway returned an order with unexpected identity"
-            );
-        }
-
         if (!proposal.marketId().equals(order.marketId())
                 || order.side() != expectedSide
-                || !order.isMatchable()
-                || order.remainingLots().compareTo(proposal.fillLots()) < 0) {
+                || !order.isMatchable()) {
             ineligibleOrderIds.add(expectedOrderId);
         }
     }
 
     private void checkFunding(
-            EthereumAddress token,
-            OrderSnapshot order,
+            FundingKey key,
             EthereumAddress spender,
             BigInteger requiredAmount,
+            Set<BigInteger> affectedOrderIds,
             Set<BigInteger> ineligibleOrderIds
     ) {
-        BigInteger balance = gateway.getTokenBalance(token, order.owner());
+        BigInteger balance = gateway.getTokenBalance(key.token(), key.owner());
         BigInteger allowance = gateway.getTokenAllowance(
-                token,
-                order.owner(),
+                key.token(),
+                key.owner(),
                 spender
         );
 
         if (balance.compareTo(requiredAmount) < 0
                 || allowance.compareTo(requiredAmount) < 0) {
-            ineligibleOrderIds.add(order.orderId());
+            ineligibleOrderIds.addAll(affectedOrderIds);
         }
     }
 
     private void requireDeployment(
-            MatchProposal proposal,
+            MatchBatch proposal,
             ChainIdentity identity
     ) {
         if (!proposal.deploymentId().equals(identity.deploymentId())) {
@@ -175,7 +182,7 @@ public class MatchPreflightService {
     }
 
     private void requireMarketIdentity(
-            MatchProposal proposal,
+            MatchBatch proposal,
             MarketSnapshot market
     ) {
         if (!proposal.deploymentId().equals(market.deploymentId())
@@ -186,10 +193,48 @@ public class MatchPreflightService {
         }
     }
 
-    private MatchPreflightResult bothOrdersIneligible(MatchProposal proposal) {
-        return MatchPreflightResult.ineligible(Set.of(
-                proposal.buyOrderId(),
-                proposal.sellOrderId()
-        ));
+    private MatchPreflightResult bothOrdersIneligible(MatchBatch proposal) {
+        return MatchPreflightResult.ineligible(allOrderIds(proposal));
+    }
+
+    private Set<BigInteger> allOrderIds(MatchBatch batch) {
+        Set<BigInteger> result = new HashSet<>();
+        for (MatchProposal leg : batch.legs()) {
+            result.add(leg.buyOrderId());
+            result.add(leg.sellOrderId());
+        }
+        return Set.copyOf(result);
+    }
+
+    private void accumulateFill(
+            BigInteger orderId,
+            BigInteger fillLots,
+            OrderSnapshot order,
+            Map<BigInteger, BigInteger> cumulativeFills,
+            Set<BigInteger> ineligibleOrderIds
+    ) {
+        BigInteger total = cumulativeFills.merge(
+                orderId,
+                fillLots,
+                BigInteger::add
+        );
+        if (total.compareTo(order.remainingLots()) > 0) {
+            ineligibleOrderIds.add(orderId);
+        }
+    }
+
+    private void addFunding(
+            FundingKey key,
+            BigInteger amount,
+            BigInteger orderId,
+            Map<FundingKey, BigInteger> required,
+            Map<FundingKey, Set<BigInteger>> affectedOrders
+    ) {
+        required.merge(key, amount, BigInteger::add);
+        affectedOrders.computeIfAbsent(key, ignored -> new HashSet<>())
+                .add(orderId);
+    }
+
+    private record FundingKey(EthereumAddress token, EthereumAddress owner) {
     }
 }

@@ -6,6 +6,11 @@ import type { TypedContractEvent, TypedDeferredTopicFilter, TypedEventLog, Typed
   
 export declare namespace OrderBook {
       
+    export type TradeExecutionStruct = {buyOrderId: BigNumberish, sellOrderId: BigNumberish, fillLots: BigNumberish, executionPrice: BigNumberish}
+
+    export type TradeExecutionStructOutput = [buyOrderId: bigint, sellOrderId: bigint, fillLots: bigint, executionPrice: bigint] & {buyOrderId: bigint, sellOrderId: bigint, fillLots: bigint, executionPrice: bigint }
+  
+
     export type OrderStruct = {id: BigNumberish, owner: AddressLike, marketId: BigNumberish, side: BigNumberish, originalLots: BigNumberish, remainingLots: BigNumberish, limitPrice: BigNumberish, status: BigNumberish}
 
     export type OrderStructOutput = [id: bigint, owner: string, marketId: bigint, side: bigint, originalLots: bigint, remainingLots: bigint, limitPrice: bigint, status: bigint] & {id: bigint, owner: string, marketId: bigint, side: bigint, originalLots: bigint, remainingLots: bigint, limitPrice: bigint, status: bigint }
@@ -13,12 +18,14 @@ export declare namespace OrderBook {
     }
 
   export interface OrderBookInterface extends Interface {
-    getFunction(nameOrSignature: "cancelOrder" | "executeTrade" | "getOrder" | "marketRegistry" | "nextOrderId" | "owner" | "placeOrder" | "renounceOwnership" | "transferOwnership"): FunctionFragment;
+    getFunction(nameOrSignature: "MAX_BATCH_LEGS" | "cancelOrder" | "executeTrade" | "executeTradeBatch" | "getOrder" | "marketRegistry" | "nextOrderId" | "owner" | "placeOrder" | "renounceOwnership" | "transferOwnership"): FunctionFragment;
 
     getEvent(nameOrSignatureOrTopic: "OrderCancelled" | "OrderPlaced" | "OwnershipTransferred" | "TradeExecuted"): EventFragment;
 
-    encodeFunctionData(functionFragment: 'cancelOrder', values: [BigNumberish]): string;
+    encodeFunctionData(functionFragment: 'MAX_BATCH_LEGS', values?: undefined): string;
+encodeFunctionData(functionFragment: 'cancelOrder', values: [BigNumberish]): string;
 encodeFunctionData(functionFragment: 'executeTrade', values: [BigNumberish, BigNumberish, BigNumberish, BigNumberish]): string;
+encodeFunctionData(functionFragment: 'executeTradeBatch', values: [OrderBook.TradeExecutionStruct[]]): string;
 encodeFunctionData(functionFragment: 'getOrder', values: [BigNumberish]): string;
 encodeFunctionData(functionFragment: 'marketRegistry', values?: undefined): string;
 encodeFunctionData(functionFragment: 'nextOrderId', values?: undefined): string;
@@ -27,8 +34,10 @@ encodeFunctionData(functionFragment: 'placeOrder', values: [BigNumberish, BigNum
 encodeFunctionData(functionFragment: 'renounceOwnership', values?: undefined): string;
 encodeFunctionData(functionFragment: 'transferOwnership', values: [AddressLike]): string;
 
-    decodeFunctionResult(functionFragment: 'cancelOrder', data: BytesLike): Result;
+    decodeFunctionResult(functionFragment: 'MAX_BATCH_LEGS', data: BytesLike): Result;
+decodeFunctionResult(functionFragment: 'cancelOrder', data: BytesLike): Result;
 decodeFunctionResult(functionFragment: 'executeTrade', data: BytesLike): Result;
+decodeFunctionResult(functionFragment: 'executeTradeBatch', data: BytesLike): Result;
 decodeFunctionResult(functionFragment: 'getOrder', data: BytesLike): Result;
 decodeFunctionResult(functionFragment: 'marketRegistry', data: BytesLike): Result;
 decodeFunctionResult(functionFragment: 'nextOrderId', data: BytesLike): Result;
@@ -121,6 +130,14 @@ decodeFunctionResult(functionFragment: 'transferOwnership', data: BytesLike): Re
 
     
     
+    MAX_BATCH_LEGS: TypedContractMethod<
+      [],
+      [bigint],
+      'view'
+    >
+    
+
+    
     cancelOrder: TypedContractMethod<
       [orderId: BigNumberish, ],
       [void],
@@ -131,6 +148,14 @@ decodeFunctionResult(functionFragment: 'transferOwnership', data: BytesLike): Re
     
     executeTrade: TypedContractMethod<
       [buyOrderId: BigNumberish, sellOrderId: BigNumberish, fillLots: BigNumberish, executionPrice: BigNumberish, ],
+      [void],
+      'nonpayable'
+    >
+    
+
+    
+    executeTradeBatch: TypedContractMethod<
+      [executions: OrderBook.TradeExecutionStruct[], ],
       [void],
       'nonpayable'
     >
@@ -195,13 +220,23 @@ decodeFunctionResult(functionFragment: 'transferOwnership', data: BytesLike): Re
 
     getFunction<T extends ContractMethod = ContractMethod>(key: string | FunctionFragment): T;
 
-    getFunction(nameOrSignature: 'cancelOrder'): TypedContractMethod<
+    getFunction(nameOrSignature: 'MAX_BATCH_LEGS'): TypedContractMethod<
+      [],
+      [bigint],
+      'view'
+    >;
+getFunction(nameOrSignature: 'cancelOrder'): TypedContractMethod<
       [orderId: BigNumberish, ],
       [void],
       'nonpayable'
     >;
 getFunction(nameOrSignature: 'executeTrade'): TypedContractMethod<
       [buyOrderId: BigNumberish, sellOrderId: BigNumberish, fillLots: BigNumberish, executionPrice: BigNumberish, ],
+      [void],
+      'nonpayable'
+    >;
+getFunction(nameOrSignature: 'executeTradeBatch'): TypedContractMethod<
+      [executions: OrderBook.TradeExecutionStruct[], ],
       [void],
       'nonpayable'
     >;

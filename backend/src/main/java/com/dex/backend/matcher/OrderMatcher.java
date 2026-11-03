@@ -35,8 +35,21 @@ public final class OrderMatcher {
             Market market,
             Collection<Order> orders
     ) {
+        return findNextBatch(market, orders, 1)
+                .map(batch -> batch.legs().getFirst());
+    }
+
+    public Optional<MatchBatch> findNextBatch(
+            Market market,
+            Collection<Order> orders,
+            int maxLegs
+    ) {
         Objects.requireNonNull(market, "market must not be null");
         Objects.requireNonNull(orders, "orders must not be null");
+
+        if (maxLegs < 1 || maxLegs > MatchBatch.MAX_LEGS) {
+            throw new IllegalArgumentException("maxLegs must be between 1 and 10");
+        }
 
         List<Order> snapshot = validateAndCopyOrders(market, orders);
 
@@ -44,18 +57,37 @@ public final class OrderMatcher {
             return Optional.empty();
         }
 
-        List<Order> bids = snapshot.stream()
+        List<VirtualOrder> virtualOrders = snapshot.stream()
                 .filter(Order::isMatchable)
-                .filter(order -> order.side() == OrderSide.BUY)
-                .sorted(BID_PRIORITY)
+                .map(order -> new VirtualOrder(order, order.remainingLots()))
                 .toList();
-        List<Order> asks = snapshot.stream()
-                .filter(Order::isMatchable)
-                .filter(order -> order.side() == OrderSide.SELL)
-                .sorted(ASK_PRIORITY)
-                .toList();
+        List<MatchProposal> legs = new ArrayList<>();
 
-        return selectMatch(new ArrayList<>(bids), new ArrayList<>(asks));
+        while (legs.size() < maxLegs) {
+            Optional<VirtualPair> pair = selectVirtualPair(virtualOrders);
+            if (pair.isEmpty()) {
+                break;
+            }
+            VirtualPair selected = pair.orElseThrow();
+            BigInteger fillLots = selected.bid().remainingLots()
+                    .min(selected.ask().remainingLots());
+            MatchProposal proposal = toProposal(
+                    selected.bid().order(),
+                    selected.ask().order(),
+                    fillLots
+            );
+            legs.add(proposal);
+            selected.bid().fill(fillLots);
+            selected.ask().fill(fillLots);
+        }
+
+        return legs.isEmpty()
+                ? Optional.empty()
+                : Optional.of(new MatchBatch(
+                        market.deploymentId(),
+                        market.marketId(),
+                        legs
+                ));
     }
 
     private List<Order> validateAndCopyOrders(
@@ -90,58 +122,72 @@ public final class OrderMatcher {
         return List.copyOf(snapshot);
     }
 
-    private Optional<MatchProposal> selectMatch(
-            List<Order> bids,
-            List<Order> asks
+    private Optional<VirtualPair> selectVirtualPair(
+            List<VirtualOrder> orders
     ) {
-        while (!bids.isEmpty() && !asks.isEmpty()) {
-            Order bestBid = bids.getFirst();
-            Order bestAsk = asks.getFirst();
+        List<VirtualOrder> bids = orders.stream()
+                .filter(VirtualOrder::hasRemaining)
+                .filter(order -> order.order().side() == OrderSide.BUY)
+                .sorted((left, right) -> BID_PRIORITY.compare(
+                        left.order(), right.order()
+                ))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        List<VirtualOrder> asks = orders.stream()
+                .filter(VirtualOrder::hasRemaining)
+                .filter(order -> order.order().side() == OrderSide.SELL)
+                .sorted((left, right) -> ASK_PRIORITY.compare(
+                        left.order(), right.order()
+                ))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
 
-            if (!pricesCross(bestBid, bestAsk)) {
+        while (!bids.isEmpty() && !asks.isEmpty()) {
+            VirtualOrder bestBid = bids.getFirst();
+            VirtualOrder bestAsk = asks.getFirst();
+
+            if (!pricesCross(bestBid.order(), bestAsk.order())) {
                 return Optional.empty();
             }
-
-            if (!bestBid.owner().equals(bestAsk.owner())) {
-                return Optional.of(toProposal(bestBid, bestAsk));
+            if (!bestBid.order().owner().equals(bestAsk.order().owner())) {
+                return Optional.of(new VirtualPair(bestBid, bestAsk));
             }
 
-            if (AGE_PRIORITY.compare(bestBid, bestAsk) < 0) {
-                Optional<Order> alternativeAsk = firstAlternativeAsk(bestBid, asks);
-
+            if (AGE_PRIORITY.compare(bestBid.order(), bestAsk.order()) < 0) {
+                Optional<VirtualOrder> alternativeAsk = asks.stream()
+                        .skip(1)
+                        .takeWhile(ask -> pricesCross(
+                                bestBid.order(), ask.order()
+                        ))
+                        .filter(ask -> !bestBid.order().owner().equals(
+                                ask.order().owner()
+                        ))
+                        .findFirst();
                 if (alternativeAsk.isPresent()) {
-                    return Optional.of(toProposal(bestBid, alternativeAsk.orElseThrow()));
+                    return Optional.of(new VirtualPair(
+                            bestBid,
+                            alternativeAsk.orElseThrow()
+                    ));
                 }
-
                 bids.removeFirst();
             } else {
-                Optional<Order> alternativeBid = firstAlternativeBid(bids, bestAsk);
-
+                Optional<VirtualOrder> alternativeBid = bids.stream()
+                        .skip(1)
+                        .takeWhile(bid -> pricesCross(
+                                bid.order(), bestAsk.order()
+                        ))
+                        .filter(bid -> !bid.order().owner().equals(
+                                bestAsk.order().owner()
+                        ))
+                        .findFirst();
                 if (alternativeBid.isPresent()) {
-                    return Optional.of(toProposal(alternativeBid.orElseThrow(), bestAsk));
+                    return Optional.of(new VirtualPair(
+                            alternativeBid.orElseThrow(),
+                            bestAsk
+                    ));
                 }
-
                 asks.removeFirst();
             }
         }
-
         return Optional.empty();
-    }
-
-    private Optional<Order> firstAlternativeAsk(Order bid, List<Order> asks) {
-        return asks.stream()
-                .skip(1)
-                .takeWhile(ask -> pricesCross(bid, ask))
-                .filter(ask -> !bid.owner().equals(ask.owner()))
-                .findFirst();
-    }
-
-    private Optional<Order> firstAlternativeBid(List<Order> bids, Order ask) {
-        return bids.stream()
-                .skip(1)
-                .takeWhile(bid -> pricesCross(bid, ask))
-                .filter(bid -> !bid.owner().equals(ask.owner()))
-                .findFirst();
     }
 
     private boolean pricesCross(Order bid, Order ask) {
@@ -149,8 +195,11 @@ public final class OrderMatcher {
                 .compareTo(ask.limitPriceQuoteAtomsPerLot()) >= 0;
     }
 
-    private MatchProposal toProposal(Order bid, Order ask) {
-        BigInteger fillLots = bid.remainingLots().min(ask.remainingLots());
+    private MatchProposal toProposal(
+            Order bid,
+            Order ask,
+            BigInteger fillLots
+    ) {
         BigInteger executionPrice = AGE_PRIORITY.compare(bid, ask) < 0
                 ? bid.limitPriceQuoteAtomsPerLot()
                 : ask.limitPriceQuoteAtomsPerLot();
@@ -163,5 +212,34 @@ public final class OrderMatcher {
                 fillLots,
                 executionPrice
         );
+    }
+
+    private static final class VirtualOrder {
+        private final Order order;
+        private BigInteger remainingLots;
+
+        private VirtualOrder(Order order, BigInteger remainingLots) {
+            this.order = order;
+            this.remainingLots = remainingLots;
+        }
+
+        private Order order() {
+            return order;
+        }
+
+        private BigInteger remainingLots() {
+            return remainingLots;
+        }
+
+        private boolean hasRemaining() {
+            return remainingLots.signum() > 0;
+        }
+
+        private void fill(BigInteger quantity) {
+            remainingLots = remainingLots.subtract(quantity);
+        }
+    }
+
+    private record VirtualPair(VirtualOrder bid, VirtualOrder ask) {
     }
 }

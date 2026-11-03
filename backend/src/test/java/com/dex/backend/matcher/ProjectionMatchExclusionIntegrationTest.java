@@ -10,6 +10,7 @@ import com.dex.backend.order.OrderStatus;
 import com.dex.backend.persistence.deployment.ChainDeploymentEntity;
 import com.dex.backend.persistence.deployment.ChainDeploymentRepository;
 import com.dex.backend.persistence.execution.ExecutionAttemptRepository;
+import com.dex.backend.persistence.execution.ExecutionAttemptLegRepository;
 import com.dex.backend.persistence.execution.ExecutionAttemptStatus;
 import com.dex.backend.persistence.execution.ReservedOrderPair;
 import com.dex.backend.persistence.market.MarketEntity;
@@ -66,6 +67,7 @@ class ProjectionMatchExclusionIntegrationTest {
     private final TemporaryOrderIneligibilityRegistry ineligibilityRegistry;
     private final MutableClock clock;
     private final ExecutionAttemptRepository executionAttemptRepository;
+    private final ExecutionAttemptLegRepository executionAttemptLegRepository;
     private final OrderRepository orderRepository;
     private final MarketRepository marketRepository;
     private final ChainDeploymentRepository deploymentRepository;
@@ -78,6 +80,7 @@ class ProjectionMatchExclusionIntegrationTest {
             TemporaryOrderIneligibilityRegistry ineligibilityRegistry,
             MutableClock clock,
             ExecutionAttemptRepository executionAttemptRepository,
+            ExecutionAttemptLegRepository executionAttemptLegRepository,
             OrderRepository orderRepository,
             MarketRepository marketRepository,
             ChainDeploymentRepository deploymentRepository,
@@ -88,6 +91,7 @@ class ProjectionMatchExclusionIntegrationTest {
         this.ineligibilityRegistry = ineligibilityRegistry;
         this.clock = clock;
         this.executionAttemptRepository = executionAttemptRepository;
+        this.executionAttemptLegRepository = executionAttemptLegRepository;
         this.orderRepository = orderRepository;
         this.marketRepository = marketRepository;
         this.deploymentRepository = deploymentRepository;
@@ -274,7 +278,7 @@ class ProjectionMatchExclusionIntegrationTest {
                 ExecutionAttemptStatus.UNCERTAIN
         );
 
-        List<ReservedOrderPair> reservations = executionAttemptRepository
+        List<ReservedOrderPair> reservations = executionAttemptLegRepository
                 .findReservedOrderPairs(
                         DEPLOYMENT_ID,
                         ExecutionAttemptStatus.reservingStatuses()
@@ -314,14 +318,17 @@ class ProjectionMatchExclusionIntegrationTest {
 
         Instant after = Instant.now();
         var attempt = executionAttemptRepository.findAll().getFirst();
+        var leg = executionAttemptLegRepository
+                .findByIdAttemptIdOrderByIdLegIndex(attempt.getAttemptId())
+                .getFirst();
         assertAll(
                 () -> assertEquals(MatchReservationResult.RESERVED, result),
                 () -> assertEquals(1, executionAttemptRepository.count()),
                 () -> assertEquals(DEPLOYMENT_ID, attempt.getDeploymentId()),
-                () -> assertEquals(BigInteger.ONE, attempt.getMarketId()),
-                () -> assertEquals(BigInteger.ONE, attempt.getBuyOrderId()),
-                () -> assertEquals(BigInteger.TWO, attempt.getSellOrderId()),
-                () -> assertEquals(BigInteger.TEN, attempt.getFillLots()),
+                () -> assertEquals(BigInteger.ONE, leg.getMarketId()),
+                () -> assertEquals(BigInteger.ONE, leg.getBuyOrderId()),
+                () -> assertEquals(BigInteger.TWO, leg.getSellOrderId()),
+                () -> assertEquals(BigInteger.TEN, leg.getFillLots()),
                 () -> assertEquals(executor, attempt.getExecutorAddress()),
                 () -> assertEquals(
                         ExecutionAttemptStatus.RESERVED,
@@ -345,6 +352,40 @@ class ProjectionMatchExclusionIntegrationTest {
                                 new OrderEntityId(DEPLOYMENT_ID, BigInteger.ONE)
                         ).orElseThrow().getRemainingLots()
                 )
+        );
+    }
+
+    @Test
+    void reservesAnEntireRediscoveredBatchWithOrderedChildLegs() {
+        saveDeployment(DEPLOYMENT_ID, 1);
+        saveMarket(DEPLOYMENT_ID, BigInteger.ONE);
+        saveOpenOrder(DEPLOYMENT_ID, 1, 1, OrderSide.SELL, 1, 100, 100, 1);
+        saveOpenOrder(DEPLOYMENT_ID, 1, 2, OrderSide.BUY, 2, 130, 40, 2);
+        saveOpenOrder(DEPLOYMENT_ID, 1, 3, OrderSide.BUY, 3, 120, 30, 3);
+        saveOpenOrder(DEPLOYMENT_ID, 1, 4, OrderSide.BUY, 4, 110, 20, 4);
+        orderRepository.flush();
+        MatchBatch batch = matchService.findNextBatch().orElseThrow();
+
+        assertEquals(
+                MatchReservationResult.RESERVED,
+                reservationService.reserveIfCurrent(batch, address(999))
+        );
+
+        var attempt = executionAttemptRepository.findAll().getFirst();
+        var legs = executionAttemptLegRepository
+                .findByIdAttemptIdOrderByIdLegIndex(attempt.getAttemptId());
+        assertAll(
+                () -> assertEquals(3, legs.size()),
+                () -> assertEquals(BigInteger.TWO, legs.get(0).getBuyOrderId()),
+                () -> assertEquals(BigInteger.valueOf(3), legs.get(1).getBuyOrderId()),
+                () -> assertEquals(BigInteger.valueOf(4), legs.get(2).getBuyOrderId()),
+                () -> assertEquals(BigInteger.ONE, legs.get(0).getSellOrderId()),
+                () -> assertEquals(BigInteger.ONE, legs.get(1).getSellOrderId()),
+                () -> assertEquals(BigInteger.ONE, legs.get(2).getSellOrderId()),
+                () -> assertEquals(BigInteger.valueOf(40), legs.get(0).getFillLots()),
+                () -> assertEquals(BigInteger.valueOf(30), legs.get(1).getFillLots()),
+                () -> assertEquals(BigInteger.valueOf(20), legs.get(2).getFillLots()),
+                () -> assertEquals(4, orderRepository.count())
         );
     }
 
@@ -414,6 +455,7 @@ class ProjectionMatchExclusionIntegrationTest {
 
     private void clearData() {
         ineligibilityRegistry.clear();
+        executionAttemptLegRepository.deleteAll();
         executionAttemptRepository.deleteAll();
         orderRepository.deleteAll();
         marketRepository.deleteAll();
@@ -449,16 +491,12 @@ class ProjectionMatchExclusionIntegrationTest {
                 ? Timestamp.from(START)
                 : null;
 
+        UUID attemptId = UUID.randomUUID();
         jdbcTemplate.update(
                 """
                 INSERT INTO execution_attempts (
                     attempt_id,
                     deployment_id,
-                    market_id,
-                    buy_order_id,
-                    sell_order_id,
-                    fill_lots,
-                    execution_price_quote_atoms_per_lot,
                     executor_address,
                     executor_nonce,
                     transaction_hash,
@@ -467,15 +505,10 @@ class ProjectionMatchExclusionIntegrationTest {
                     created_at,
                     updated_at,
                     resolved_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                UUID.randomUUID(),
+                attemptId,
                 deploymentId,
-                marketId,
-                buyOrderId,
-                sellOrderId,
-                BigInteger.ONE,
-                BigInteger.TEN,
                 address(999).value(),
                 hasTransactionIdentity ? buyOrderId : null,
                 hasTransactionIdentity
@@ -486,6 +519,27 @@ class ProjectionMatchExclusionIntegrationTest {
                 Timestamp.from(START),
                 Timestamp.from(START),
                 resolvedAt
+        );
+        jdbcTemplate.update(
+                """
+                INSERT INTO execution_attempt_legs (
+                    attempt_id,
+                    deployment_id,
+                    leg_index,
+                    market_id,
+                    buy_order_id,
+                    sell_order_id,
+                    fill_lots,
+                    execution_price_quote_atoms_per_lot
+                ) VALUES (?, ?, 0, ?, ?, ?, ?, ?)
+                """,
+                attemptId,
+                deploymentId,
+                marketId,
+                buyOrderId,
+                sellOrderId,
+                BigInteger.ONE,
+                BigInteger.TEN
         );
     }
 

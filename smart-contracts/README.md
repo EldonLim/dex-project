@@ -191,7 +191,24 @@ function executeTrade(
     uint256 fillLots,
     uint256 executionPrice
 ) external;
+
+struct TradeExecution {
+    uint256 buyOrderId;
+    uint256 sellOrderId;
+    uint256 fillLots;
+    uint256 executionPrice;
+}
+
+function executeTradeBatch(
+    TradeExecution[] calldata executions
+) external;
 ```
+
+`executeTradeBatch` accepts 1–10 legs and emits one existing `TradeExecuted`
+event per leg. The same order may participate in several legs. Solidity applies
+the same validation and token transfers to each leg, and any failure reverts
+all earlier state changes and transfers in that transaction. `executeTrade`
+remains available as the single-leg compatibility interface.
 
 The contract validates that: - Both orders exist and are open. - The
 first order is a buy and the second is a sell. - Both orders belong to
@@ -335,7 +352,8 @@ ID. An ABI does not include the deployed address.
 -   No funds are reserved when orders are placed.
 -   No automatic matching or price-time priority is implemented
     on-chain.
--   `executeTrade()` validates a proposed match but does not prove that
+-   `executeTrade()` and `executeTradeBatch()` validate proposed matches but do
+    not prove that
     the matching engine followed a specific priority policy.
 -   Any account may call settlement unless additional access control is
     implemented. The contract still checks order details and price

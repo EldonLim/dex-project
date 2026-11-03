@@ -1,6 +1,8 @@
 package com.dex.backend.blockchain.ethereum;
 
 import com.dex.backend.blockchain.execution.PreparedSettlement;
+import com.dex.backend.blockchain.execution.SettlementBatchRequest;
+import com.dex.backend.blockchain.execution.SettlementLeg;
 import com.dex.backend.blockchain.execution.SettlementRequest;
 import com.dex.backend.blockchain.model.EthereumAddress;
 import com.dex.backend.blockchain.model.Hash256;
@@ -12,6 +14,7 @@ import org.web3j.crypto.SignedRawTransaction;
 import org.web3j.crypto.TransactionDecoder;
 
 import java.math.BigInteger;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -50,15 +53,12 @@ class EthereumSettlementSignerTests {
         );
         SignedRawTransaction signed = (SignedRawTransaction) decoded;
         String expectedData = FunctionEncoder.encode(
-                EthereumDexAbi.executeTrade(
-                        REQUEST.buyOrderId(),
-                        REQUEST.sellOrderId(),
-                        REQUEST.fillLots(),
-                        REQUEST.executionPriceQuoteAtomsPerLot()
+                EthereumDexAbi.executeTradeBatch(
+                        REQUEST.toBatchRequest()
                 )
         );
 
-        assertThat(prepared.request()).isEqualTo(REQUEST);
+        assertThat(prepared.request()).isEqualTo(REQUEST.toBatchRequest());
         assertThat(prepared.executorAddress()).isEqualTo(EXECUTOR);
         assertThat(prepared.nonce()).isEqualTo(BigInteger.valueOf(7));
         assertThat(prepared.transactionHash()).isEqualTo(
@@ -73,6 +73,43 @@ class EthereumSettlementSignerTests {
                 .isEqualTo(BigInteger.valueOf(2_000_000_000L));
         assertThat(signed.getGasLimit()).isEqualTo(BigInteger.valueOf(150_000));
         assertThat("0x" + signed.getData()).isEqualTo(expectedData);
+    }
+
+    @Test
+    void encodesEveryOrderedBatchLegIntoOneSignedTransaction() {
+        SettlementBatchRequest batch = new SettlementBatchRequest(
+                "signing-test",
+                BigInteger.ONE,
+                List.of(
+                        new SettlementLeg(
+                                BigInteger.TEN,
+                                BigInteger.valueOf(20),
+                                BigInteger.valueOf(40),
+                                BigInteger.valueOf(100)
+                        ),
+                        new SettlementLeg(
+                                BigInteger.valueOf(11),
+                                BigInteger.valueOf(20),
+                                BigInteger.valueOf(30),
+                                BigInteger.valueOf(101)
+                        )
+                )
+        );
+
+        PreparedSettlement prepared = signer().sign(
+                batch,
+                BigInteger.valueOf(8),
+                BigInteger.ONE,
+                BigInteger.valueOf(200_000)
+        );
+        RawTransaction decoded = TransactionDecoder.decode(
+                prepared.signedTransactionHex()
+        );
+
+        assertThat(prepared.request()).isEqualTo(batch);
+        assertThat("0x" + decoded.getData()).isEqualTo(
+                FunctionEncoder.encode(EthereumDexAbi.executeTradeBatch(batch))
+        );
     }
 
     @Test

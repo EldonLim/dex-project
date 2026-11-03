@@ -25,6 +25,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.jdbc.Sql;
+import org.springframework.test.context.jdbc.SqlConfig;
 
 import java.math.BigInteger;
 import java.time.Instant;
@@ -41,6 +43,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
+@Sql(
+        scripts = "/reset-database.sql",
+        executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD,
+        config = @SqlConfig(transactionMode = SqlConfig.TransactionMode.ISOLATED)
+)
 class ExecutionAttemptLifecycleServiceIntegrationTest {
 
     private static final String DEPLOYMENT_ID = "integration-test";
@@ -58,6 +65,9 @@ class ExecutionAttemptLifecycleServiceIntegrationTest {
     private ExecutionAttemptRepository attemptRepository;
 
     @Autowired
+    private ExecutionAttemptLegRepository legRepository;
+
+    @Autowired
     private OrderRepository orderRepository;
 
     @Autowired
@@ -71,6 +81,7 @@ class ExecutionAttemptLifecycleServiceIntegrationTest {
 
     @BeforeEach
     void clearDatabase() {
+        legRepository.deleteAll();
         attemptRepository.deleteAll();
         orderRepository.deleteAll();
         marketRepository.deleteAll();
@@ -113,11 +124,13 @@ class ExecutionAttemptLifecycleServiceIntegrationTest {
                 ),
                 () -> assertEquals(
                         prepared,
-                        stored.toPreparedSettlement()
+                        stored.toPreparedSettlement(prepared.request())
                 ),
                 () -> assertEquals(
                         BigInteger.valueOf(100),
-                        stored.getExecutionPriceQuoteAtomsPerLot()
+                        legRepository.findByIdAttemptIdOrderByIdLegIndex(
+                                stored.getAttemptId()
+                        ).getFirst().getExecutionPriceQuoteAtomsPerLot()
                 ),
                 () -> assertNotNull(stored.getSubmittedAt()),
                 () -> assertNotNull(stored.getResolvedAt()),
@@ -146,7 +159,7 @@ class ExecutionAttemptLifecycleServiceIntegrationTest {
 
         ExecutionAttemptEntity stored = attemptRepository.findById(attemptId)
                 .orElseThrow();
-        var pairs = attemptRepository.findReservedOrderPairs(
+        var pairs = legRepository.findReservedOrderPairs(
                 DEPLOYMENT_ID,
                 ExecutionAttemptStatus.reservingStatuses()
         );
@@ -190,6 +203,9 @@ class ExecutionAttemptLifecycleServiceIntegrationTest {
                         .getRevertReason()
         );
 
+        legRepository.deleteAll(
+                legRepository.findByIdAttemptIdOrderByIdLegIndex(revertedId)
+        );
         attemptRepository.deleteById(revertedId);
         UUID abandonedId = saveAttemptForExistingProjection(DEPLOYMENT_ID);
         lifecycleService.abandon(
@@ -347,6 +363,11 @@ class ExecutionAttemptLifecycleServiceIntegrationTest {
                 proposal(deploymentId),
                 EXECUTOR,
                 Instant.now().minusSeconds(1)
+        ));
+        legRepository.saveAndFlush(new ExecutionAttemptLegEntity(
+                attemptId,
+                0,
+                proposal(deploymentId)
         ));
         return attemptId;
     }

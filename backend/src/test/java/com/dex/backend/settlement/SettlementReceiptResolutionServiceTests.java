@@ -3,6 +3,8 @@ package com.dex.backend.settlement;
 import com.dex.backend.matcher.TemporaryOrderIneligibilityRegistry;
 import com.dex.backend.persistence.execution.ExecutionAttemptEntity;
 import com.dex.backend.persistence.execution.ExecutionAttemptRepository;
+import com.dex.backend.persistence.execution.ExecutionAttemptLegEntity;
+import com.dex.backend.persistence.execution.ExecutionAttemptLegRepository;
 import com.dex.backend.persistence.execution.ExecutionAttemptStatus;
 import com.dex.backend.persistence.indexer.IndexerCheckpointEntity;
 import com.dex.backend.persistence.indexer.IndexerCheckpointRepository;
@@ -35,6 +37,8 @@ class SettlementReceiptResolutionServiceTests {
 
     private final ExecutionAttemptRepository attemptRepository =
             mock(ExecutionAttemptRepository.class);
+    private final ExecutionAttemptLegRepository legRepository =
+            mock(ExecutionAttemptLegRepository.class);
     private final IndexerCheckpointRepository checkpointRepository =
             mock(IndexerCheckpointRepository.class);
     private final TemporaryOrderIneligibilityRegistry ineligibilityRegistry =
@@ -44,6 +48,7 @@ class SettlementReceiptResolutionServiceTests {
     private final SettlementReceiptResolutionService service =
             new SettlementReceiptResolutionService(
                     attemptRepository,
+                    legRepository,
                     checkpointRepository,
                     ineligibilityRegistry,
                     DEPLOYMENT_ID,
@@ -140,8 +145,11 @@ class SettlementReceiptResolutionServiceTests {
         when(attemptRepository.findForUpdate(ATTEMPT_ID, DEPLOYMENT_ID))
                 .thenReturn(Optional.of(attempt));
         when(attempt.getStatus()).thenReturn(ExecutionAttemptStatus.SUBMITTED);
-        when(attempt.getBuyOrderId()).thenReturn(BUY_ORDER_ID);
-        when(attempt.getSellOrderId()).thenReturn(SELL_ORDER_ID);
+        ExecutionAttemptLegEntity leg = mock(ExecutionAttemptLegEntity.class);
+        when(leg.getBuyOrderId()).thenReturn(BUY_ORDER_ID);
+        when(leg.getSellOrderId()).thenReturn(SELL_ORDER_ID);
+        when(legRepository.findByIdAttemptIdOrderByIdLegIndex(ATTEMPT_ID))
+                .thenReturn(java.util.List.of(leg));
     }
 
     private void useCheckpoint(BigInteger lastProcessedBlock) {

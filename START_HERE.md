@@ -116,6 +116,9 @@ Add a custom network:
 Import these public Hardhat test accounts only:
 
 ```text
+Hardhat Deployer private key (also the registry owner)
+0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+
 Account 1 private key
 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
 
@@ -140,6 +143,26 @@ The Java matcher fills `2` lots at the older sell order's price (`2`). The buy
 becomes filled, the sell keeps `2` lots remaining, and the contract atomically
 transfers 2 TKA to the buyer and 4 TKB to the seller. The UI then reads the
 confirmed result from Spring's PostgreSQL projection.
+
+The same workflow can combine up to 10 compatible matches from one market into
+one atomic settlement transaction. A large order can therefore fill against
+several counterparties at once; the trade history displays one row per match
+event even though those rows share one transaction hash. The market header
+shows the backend's configured batch limit, and the trade history labels the
+rows from one shared transaction as `Batch 1/N`, `Batch 2/N`, and so on.
+
+### Test a two-leg batch
+
+1. Before creating any buy order, connect **Hardhat Deployer** and place a sell
+   for `1` TKA at `2` TKB.
+2. Connect **Account 1** and place another sell for `1` TKA at `2` TKB.
+3. Connect **Account 2** and place one buy for `2` TKA at `3` TKB.
+4. Wait for Spring to settle and index the result.
+5. Confirm that Recent trades shows two rows with the same transaction hash,
+   labelled `Batch 1/2` and `Batch 2/2`.
+
+Create both sell orders before the crossing buy so the matcher can collect both
+compatible legs in the same cycle.
 
 ## 9. Run automated verification
 

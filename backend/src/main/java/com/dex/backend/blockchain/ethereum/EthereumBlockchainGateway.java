@@ -5,6 +5,7 @@ import com.dex.backend.blockchain.BlockchainGatewayException;
 import com.dex.backend.blockchain.event.DexEvent;
 import com.dex.backend.blockchain.execution.PreparedSettlement;
 import com.dex.backend.blockchain.execution.SettlementRequest;
+import com.dex.backend.blockchain.execution.SettlementBatchRequest;
 import com.dex.backend.blockchain.execution.TransactionObservation;
 import com.dex.backend.blockchain.model.BlockRange;
 import com.dex.backend.blockchain.model.BlockReference;
@@ -168,7 +169,7 @@ public final class EthereumBlockchainGateway implements BlockchainGateway {
     }
 
     @Override
-    public PreparedSettlement prepareSettlement(SettlementRequest request) {
+    public PreparedSettlement prepareSettlement(SettlementBatchRequest request) {
         requireRequest(request);
         EthereumSettlementSigner activeSigner = requireSigner();
         BigInteger nonce = rpcClient.getPendingExecutorNonce();
@@ -239,7 +240,7 @@ public final class EthereumBlockchainGateway implements BlockchainGateway {
         return signer;
     }
 
-    private void requireRequest(SettlementRequest request) {
+    private void requireRequest(SettlementBatchRequest request) {
         Objects.requireNonNull(request, "request must not be null");
         if (!deploymentId.equals(request.deploymentId())) {
             throw new IllegalArgumentException(

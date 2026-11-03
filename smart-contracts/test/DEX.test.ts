@@ -8,6 +8,7 @@ describe("DEX Smart Contracts", function () {
   let owner: any;
   let alice: any;
   let bob: any;
+  let charlie: any;
 
   let tokenA: any;
   let tokenB: any;
@@ -33,7 +34,7 @@ describe("DEX Smart Contracts", function () {
   const PRICE = ethers.parseUnits("2", 18);
 
   beforeEach(async function () {
-    [owner, alice, bob] = await ethers.getSigners();
+    [owner, alice, bob, charlie] = await ethers.getSigners();
 
     tokenA = await ethers.deployContract("MockToken", [
       "Token A",
@@ -566,6 +567,29 @@ describe("DEX Smart Contracts", function () {
       );
     }
 
+    async function prepareRepeatedSellBatch() {
+      await tokenB.transfer(alice.address, ethers.parseUnits("100", 18));
+      await tokenB.transfer(charlie.address, ethers.parseUnits("100", 18));
+      await tokenA.transfer(bob.address, ethers.parseUnits("100", 18));
+
+      await tokenB.connect(alice).approve(
+        await orderBook.getAddress(),
+        ethers.MaxUint256
+      );
+      await tokenB.connect(charlie).approve(
+        await orderBook.getAddress(),
+        ethers.MaxUint256
+      );
+      await tokenA.connect(bob).approve(
+        await orderBook.getAddress(),
+        ethers.MaxUint256
+      );
+
+      await orderBook.connect(alice).placeOrder(MARKET_ID, BUY, 4, PRICE);
+      await orderBook.connect(charlie).placeOrder(MARKET_ID, BUY, 3, PRICE);
+      await orderBook.connect(bob).placeOrder(MARKET_ID, SELL, 10, PRICE);
+    }
+
     it("Should execute a partial fill correctly", async function () {
       await prepareTrade(10n, 10n);
 
@@ -628,6 +652,107 @@ describe("DEX Smart Contracts", function () {
 
       expect(sellOrder.remainingLots).to.equal(0n);
       expect(sellOrder.status).to.equal(FILLED);
+    });
+
+    it("Should atomically settle several counterparties with one repeated order", async function () {
+      await prepareRepeatedSellBatch();
+
+      const tx = orderBook.executeTradeBatch([
+        { buyOrderId: 1, sellOrderId: 3, fillLots: 4, executionPrice: PRICE },
+        { buyOrderId: 2, sellOrderId: 3, fillLots: 3, executionPrice: PRICE },
+      ]);
+
+      await expect(tx)
+        .to.emit(orderBook, "TradeExecuted")
+        .withArgs(
+          1n,
+          3n,
+          MARKET_ID,
+          alice.address,
+          bob.address,
+          4n,
+          PRICE,
+          ethers.parseUnits("4", 18),
+          ethers.parseUnits("8", 18)
+        );
+      await expect(tx)
+        .to.emit(orderBook, "TradeExecuted")
+        .withArgs(
+          2n,
+          3n,
+          MARKET_ID,
+          charlie.address,
+          bob.address,
+          3n,
+          PRICE,
+          ethers.parseUnits("3", 18),
+          ethers.parseUnits("6", 18)
+        );
+
+      expect((await orderBook.getOrder(1)).remainingLots).to.equal(0n);
+      expect((await orderBook.getOrder(2)).remainingLots).to.equal(0n);
+      expect((await orderBook.getOrder(3)).remainingLots).to.equal(3n);
+    });
+
+    it("Should reject empty and oversized batches", async function () {
+      await expect(orderBook.executeTradeBatch([]))
+        .to.be.revertedWith("Batch must not be empty");
+
+      const leg = {
+        buyOrderId: 1,
+        sellOrderId: 2,
+        fillLots: 1,
+        executionPrice: PRICE,
+      };
+      await expect(orderBook.executeTradeBatch(Array(11).fill(leg)))
+        .to.be.revertedWith("Batch exceeds maximum legs");
+    });
+
+    it("Should roll back every earlier leg when a later leg fails", async function () {
+      await prepareRepeatedSellBatch();
+      const aliceBaseBefore = await tokenA.balanceOf(alice.address);
+      const sellerQuoteBefore = await tokenB.balanceOf(bob.address);
+
+      await expect(orderBook.executeTradeBatch([
+        { buyOrderId: 1, sellOrderId: 3, fillLots: 4, executionPrice: PRICE },
+        { buyOrderId: 2, sellOrderId: 3, fillLots: 7, executionPrice: PRICE },
+      ])).to.be.revertedWith("Fill exceeds buy quantity");
+
+      expect((await orderBook.getOrder(1)).remainingLots).to.equal(4n);
+      expect((await orderBook.getOrder(2)).remainingLots).to.equal(3n);
+      expect((await orderBook.getOrder(3)).remainingLots).to.equal(10n);
+      expect(await tokenA.balanceOf(alice.address)).to.equal(aliceBaseBefore);
+      expect(await tokenB.balanceOf(bob.address)).to.equal(sellerQuoteBefore);
+    });
+
+    it("Should support the full ten-leg batch limit", async function () {
+      const signers = await ethers.getSigners();
+      const buyers = signers.slice(1, 11);
+      const seller = signers[11];
+      const orderBookAddress = await orderBook.getAddress();
+
+      for (const buyer of buyers) {
+        await tokenB.transfer(buyer.address, ethers.parseUnits("10", 18));
+        await tokenB.connect(buyer).approve(orderBookAddress, ethers.MaxUint256);
+        await orderBook.connect(buyer).placeOrder(MARKET_ID, BUY, 1, PRICE);
+      }
+      await tokenA.transfer(seller.address, ethers.parseUnits("10", 18));
+      await tokenA.connect(seller).approve(orderBookAddress, ethers.MaxUint256);
+      await orderBook.connect(seller).placeOrder(MARKET_ID, SELL, 10, PRICE);
+
+      await orderBook.executeTradeBatch(
+        buyers.map((_, index) => ({
+          buyOrderId: BigInt(index + 1),
+          sellOrderId: 11n,
+          fillLots: 1n,
+          executionPrice: PRICE,
+        }))
+      );
+
+      expect((await orderBook.getOrder(11)).remainingLots).to.equal(0n);
+      for (let orderId = 1; orderId <= 10; orderId += 1) {
+        expect((await orderBook.getOrder(orderId)).remainingLots).to.equal(0n);
+      }
     });
 
     it("Should reject a fill larger than the buy order", async function () {
